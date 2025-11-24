@@ -1,0 +1,2 @@
+# For psycopg2-binary, if needed on Streamlit Community Cloud
+libpq-dev
