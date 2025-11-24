@@ -8,12 +8,26 @@ from datetime import datetime
 # ---------------------------
 st.set_page_config(page_title="Jugnoo CRM", page_icon="🏗️", layout="wide")
 
+# CSS: Targets ONLY the metric cards to fix the visibility issue
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    .stMetric {background-color: #f0f2f6; padding: 10px; border-radius: 5px;}
+    
+    /* Strictly target the metric container to fix white-on-white text */
+    [data-testid="stMetric"] {
+        background-color: #262730; /* Dark Gray Background */
+        border: 1px solid #464b5f;
+        padding: 15px;
+        border-radius: 8px;
+        color: white;
+    }
+    
+    /* Ensure the label inside the metric (e.g. "Base Cost") is also visible */
+    [data-testid="stMetricLabel"] {
+        color: #b4b4b4; /* Light Gray for labels */
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -38,6 +52,7 @@ def run_query(query_func):
         return None
 
 def get_settings():
+    """Fetch settings with safety defaults."""
     defaults = {"part_margin": 0.15, "labor_margin": 0.20, "extra_margin": 0.05}
     try:
         response = run_query(supabase.table("settings").select("*"))
@@ -54,10 +69,10 @@ def get_settings():
 st.title("🏗️ Jugnoo CRM")
 
 if not supabase:
-    st.error("Connection Error. Check Secrets.")
+    st.error("Connection Error. Please check your API Secrets.")
     st.stop()
 
-tab1, tab2, tab3, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "⚙️ Inventory & Settings"])
+tab1, tab2, tab3, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "⚙️ Settings"])
 
 # --- TAB 1: DASHBOARD ---
 with tab1:
@@ -66,11 +81,13 @@ with tab1:
     
     if response and response.data:
         df = pd.DataFrame(response.data)
-        display_cols = [c for c in ['name', 'status', 'phone', 'address'] if c in df.columns]
-        st.dataframe(df[display_cols], use_container_width=True, hide_index=True)
+        # Safe column selection
+        cols = [c for c in ['name', 'status', 'phone', 'address'] if c in df.columns]
+        st.dataframe(df[cols], use_container_width=True, hide_index=True)
         
         st.divider()
         
+        # Client Actions
         client_map = {c['name']: c for c in response.data}
         selected_client_name = st.selectbox("Select Client to Manage", list(client_map.keys()), index=None)
         
@@ -110,7 +127,7 @@ with tab2:
             }))
             st.success("Client Added!")
 
-# --- TAB 3: ESTIMATOR (CUSTOM MARGINS ADDED) ---
+# --- TAB 3: ESTIMATOR (GRANULAR CONTROL) ---
 with tab3:
     st.subheader("Estimator Engine")
     
@@ -123,9 +140,8 @@ with tab3:
     if target_client_name:
         target_client = client_dict[target_client_name]
         
-        # Load Saved Data
+        # Load Data Logic
         saved_est = target_client.get('internal_estimate')
-        # Handle case where saved data is just a list (old version) vs dict (new version with margins)
         loaded_items = []
         saved_margins = None
         
@@ -141,21 +157,21 @@ with tab3:
 
         st.divider()
         
-        # --- CUSTOM MARGIN LOGIC ---
+        # 2. Custom Margins Checkbox
         global_settings = get_settings()
-        
         use_custom = st.checkbox("🛠️ Use Custom Margins for this Client", value=(saved_margins is not None))
         
         if use_custom:
-            # Initialize with saved margins OR global defaults
+            # Defaults: Saved > Global
             def_p = int((saved_margins['p'] if saved_margins else global_settings['part_margin']) * 100)
             def_l = int((saved_margins['l'] if saved_margins else global_settings['labor_margin']) * 100)
             def_e = int((saved_margins['e'] if saved_margins else global_settings['extra_margin']) * 100)
             
+            st.write("**Custom Profit Settings (0-100%)**")
             mc1, mc2, mc3 = st.columns(3)
-            cust_p = mc1.slider("Custom Part %", 0, 100, def_p, key="cp") / 100
-            cust_l = mc2.slider("Custom Labor %", 0, 100, def_l, key="cl") / 100
-            cust_e = mc3.slider("Custom Extra %", 0, 100, def_e, key="ce") / 100
+            cust_p = mc1.slider("Part %", 0, 100, def_p, key="cp") / 100
+            cust_l = mc2.slider("Labor %", 0, 100, def_l, key="cl") / 100
+            cust_e = mc3.slider("Extra %", 0, 100, def_e, key="ce") / 100
             
             active_margins = {'part_margin': cust_p, 'labor_margin': cust_l, 'extra_margin': cust_e}
         else:
@@ -181,7 +197,6 @@ with tab3:
 
         # 4. Editable List & Calculation
         if st.session_state[ss_key]:
-            # Prepare calculation
             margin_mult = 1 + active_margins['part_margin'] + active_margins['labor_margin'] + active_margins['extra_margin']
             
             df = pd.DataFrame(st.session_state[ss_key])
@@ -192,7 +207,7 @@ with tab3:
             df["Unit Price (Calc)"] = df["Base Rate"] * margin_mult
             df["Total Price"] = df["Unit Price (Calc)"] * df["Qty"]
             
-            st.write("#### Estimate Items")
+            st.write("#### Estimate Items (Edit Qty or Delete Rows)")
             edited_df = st.data_editor(
                 df,
                 num_rows="dynamic",
@@ -207,7 +222,7 @@ with tab3:
                 key=f"edit_{target_client['id']}"
             )
             
-            # Sync edits
+            # Sync edits back to list
             current_items = edited_df.to_dict(orient="records")
             
             # Totals
@@ -222,7 +237,6 @@ with tab3:
             c3.metric("Projected Profit", f"₹{profit:,.0f}", delta="Profit")
             
             if st.button("💾 Save Estimate", type="primary"):
-                # Prepare save object
                 save_obj = {
                     "items": current_items,
                     "margins": {
@@ -231,32 +245,29 @@ with tab3:
                         'e': active_margins['extra_margin']
                     } if use_custom else None
                 }
-                
                 run_query(supabase.table("clients").update({
                     "internal_estimate": save_obj
                 }).eq("id", target_client['id']))
                 st.toast("Estimate Saved!", icon="✅")
 
-# --- TAB 4: SETTINGS (SINGLE ROW SLIDERS) ---
+# --- TAB 4: SETTINGS ---
 with tab4:
-    st.subheader("Global Profit Settings")
+    st.subheader("Global Settings")
     s = get_settings()
     
     with st.form("margin_settings"):
-        st.write("Defaults for new estimates (0-100%)")
+        st.write("**Global Profit Defaults (0-100%)**")
         
-        # SINGLE ROW - 3 COLUMNS
         c1, c2, c3 = st.columns(3)
         
-        p_val = int(s.get('part_margin', 0.15) * 100)
-        l_val = int(s.get('labor_margin', 0.20) * 100)
-        e_val = int(s.get('extra_margin', 0.05) * 100)
+        # Fetch current values or defaults
+        p_curr = int(s.get('part_margin', 0.15) * 100)
+        l_curr = int(s.get('labor_margin', 0.20) * 100)
+        e_curr = int(s.get('extra_margin', 0.05) * 100)
         
-        p = c1.slider("Part Margin %", 0, 100, p_val)
-        l = c2.slider("Labor Margin %", 0, 100, l_val)
-        e = c3.slider("Extra Margin %", 0, 100, e_val)
-        
-        st.info(f"Total Markup Applied: {p+l+e}%")
+        p = c1.slider("Part Margin %", 0, 100, p_curr)
+        l = c2.slider("Labor Margin %", 0, 100, l_curr)
+        e = c3.slider("Extra Margin %", 0, 100, e_curr)
         
         if st.form_submit_button("Update Global Defaults"):
             run_query(supabase.table("settings").upsert({
@@ -274,7 +285,7 @@ with tab4:
     with st.form("inv_add"):
         c1, c2 = st.columns([2, 1])
         new_item = c1.text_input("Item Name")
-        rate = c2.number_input("Base Rate", min_value=0.0)
+        rate = c2.number_input("Base Rate (₹)", min_value=0.0)
         if st.form_submit_button("Add Item"):
             run_query(supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate}))
             st.success("Added")
