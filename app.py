@@ -43,8 +43,10 @@ supabase = init_connection()
 # ---------------------------
 # 2. AUTHENTICATION (COOKIES)
 # ---------------------------
+# IMPORTANT: Adding a key here helps persistence
+@st.cache_resource(experimental_allow_widgets=True)
 def get_manager():
-    return stx.CookieManager()
+    return stx.CookieManager(key="auth_cookie_manager")
 
 cookie_manager = get_manager()
 
@@ -58,37 +60,44 @@ def check_login(username, password):
 def login_section():
     st.title("🔒 Jugnoo CRM")
     
-    # Check if cookie exists
+    # 1. Try to get cookie
     cookie_user = cookie_manager.get(cookie="jugnoo_user")
     
-    # If cookie exists, auto-login
-    if cookie_user and not st.session_state.get('logged_in'):
+    # 2. If Cookie found, auto-login
+    if cookie_user:
         st.session_state.logged_in = True
         st.session_state.username = cookie_user
-        return
+        return 
 
+    # 3. If already logged in via session state, skip
     if st.session_state.get('logged_in'):
         return
 
+    # 4. Show Login Form
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         with st.form("login"):
             st.subheader("Sign In")
             user = st.text_input("Username")
             pwd = st.text_input("Password", type="password")
+            
             if st.form_submit_button("Login", type="primary"):
                 if check_login(user, pwd):
                     st.session_state.logged_in = True
                     st.session_state.username = user
-                    # FIX: Use datetime object, not timestamp float
+                    
+                    # FIX: Correct Date Format for Cookie
                     expires = datetime.now() + timedelta(days=7)
                     cookie_manager.set("jugnoo_user", user, expires_at=expires)
+                    
+                    st.success("Login Successful!")
+                    time.sleep(0.5)
                     st.rerun()
                 else:
                     st.error("Invalid Credentials")
     st.stop()
 
-# CALL LOGIN LOGIC BEFORE APP
+# Run Login Check
 login_section()
 
 # ---------------------------
@@ -154,7 +163,7 @@ if not supabase: st.stop()
 
 tab1, tab2, tab3, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "⚙️ Settings"])
 
-# --- TAB 1: DASHBOARD (FIXED GPS) ---
+# --- TAB 1: DASHBOARD ---
 with tab1:
     st.subheader("Active Projects")
     response = run_query(supabase.table("clients").select("*").order("created_at", desc=True))
@@ -176,26 +185,25 @@ with tab1:
             st.markdown("### 🛠️ Manage Client")
             col_details, col_status = st.columns([1.5, 1])
             
-            # 1. EDIT DETAILS (GPS ADDED HERE)
             with col_details:
                 st.write("**Edit Details**")
                 
-                # GPS Button OUTSIDE Form
-                gps_dash = get_geolocation(component_key=f"gps_{client['id']}")
-                if gps_dash:
-                    lat_d = gps_dash['coords']['latitude']
-                    long_d = gps_dash['coords']['longitude']
-                    st.session_state[f"loc_{client['id']}"] = f"https://maps.google.com/?q={lat_d},{long_d}"
-                    st.toast("Location Updated!", icon="📍")
+                # GPS Button for Dashboard (Visible Toggle)
+                if st.toggle("Show GPS Button", key="tgl_dash"):
+                    gps_dash = get_geolocation(component_key=f"gps_{client['id']}")
+                    if gps_dash:
+                        lat_d = gps_dash['coords']['latitude']
+                        long_d = gps_dash['coords']['longitude']
+                        st.session_state[f"loc_{client['id']}"] = f"http://googleusercontent.com/maps.google.com/?q={lat_d},{long_d}"
+                        st.info("Location received! Check the Maps Link field below.")
 
                 with st.form("edit_client_details"):
                     new_name = st.text_input("Name", value=client['name'])
                     new_phone = st.text_input("Phone", value=client.get('phone', ''))
                     new_addr = st.text_area("Address", value=client.get('address', ''))
                     
-                    # Read from session state if GPS grabbed, else DB value
                     current_loc = st.session_state.get(f"loc_{client['id']}", client.get('location', ''))
-                    new_loc = st.text_input("Maps Link (Click GPS above to fill)", value=current_loc)
+                    new_loc = st.text_input("Maps Link", value=current_loc)
                     
                     if st.form_submit_button("💾 Save Changes"):
                         run_query(supabase.table("clients").update({
@@ -205,7 +213,6 @@ with tab1:
                         time.sleep(0.5)
                         st.rerun()
 
-            # 2. STATUS & DATE
             with col_status:
                 st.write("**Project Status**")
                 status_options = ["Estimate Given", "Order Received", "Work In Progress", "Work Done", "Closed"]
@@ -216,16 +223,13 @@ with tab1:
                 
                 new_status = st.selectbox("Update Status", status_options, index=curr_idx, key=f"st_{client['id']}")
                 
-                # Start Date Picker
                 start_date_val = None
                 if new_status in ["Order Received", "Work In Progress", "Work Done"]:
                     current_date_str = client.get('start_date')
-                    # Handle None or existing date
                     if current_date_str:
                         default_date = datetime.strptime(current_date_str, '%Y-%m-%d').date()
                     else:
                         default_date = datetime.now().date()
-                        
                     start_date_val = st.date_input("📅 Start Date", value=default_date)
 
                 if st.button("Update Status", key=f"btn_st_{client['id']}"):
@@ -238,7 +242,6 @@ with tab1:
                     time.sleep(0.5)
                     st.rerun()
 
-            # 3. ESTIMATE VIEW
             if client.get('internal_estimate'):
                 st.divider()
                 st.subheader("📄 Saved Estimate")
@@ -257,14 +260,14 @@ with tab1:
 with tab2:
     st.subheader("Add New Client")
     
-    st.write("📍 **Auto-Fill Location**")
-    loc_button = get_geolocation(component_key="gps_btn_new")
-    
-    if loc_button:
-        lat = loc_button['coords']['latitude']
-        long = loc_button['coords']['longitude']
-        st.session_state['new_loc_val'] = f"https://maps.google.com/?q={lat},{long}"
-        st.success("Location Captured!")
+    # GPS Button for New Client (Visible Toggle)
+    if st.toggle("📍 Get Current Location", key="tgl_new"):
+        loc_button = get_geolocation(component_key="gps_btn_new")
+        if loc_button:
+            lat = loc_button['coords']['latitude']
+            long = loc_button['coords']['longitude']
+            st.session_state['new_loc_val'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{long}"
+            st.success("Location Captured! See field below.")
 
     with st.form("add_client_form"):
         c1, c2 = st.columns(2)
@@ -338,74 +341,3 @@ with tab3:
                 if st.form_submit_button("⬇️ Add"):
                     st.session_state[ss_key].append({"Item": item_name, "Qty": qty, "Base Rate": inv_map[item_name]})
                     st.rerun()
-
-        if st.session_state[ss_key]:
-            margin_mult = 1 + active_margins['part_margin'] + active_margins['labor_margin'] + active_margins['extra_margin']
-            df = pd.DataFrame(st.session_state[ss_key])
-            if "Qty" not in df.columns: df["Qty"] = 1.0
-            if "Base Rate" not in df.columns: df["Base Rate"] = 0.0
-            df["Unit Price (Calc)"] = df["Base Rate"] * margin_mult
-            df["Total Price"] = df["Unit Price (Calc)"] * df["Qty"]
-            
-            st.write("#### Estimate Items")
-            edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"table_{target_client['id']}", 
-                column_config={"Item": st.column_config.TextColumn(disabled=True), "Base Rate": st.column_config.NumberColumn(disabled=True, format="₹%.2f"), "Total Price": st.column_config.NumberColumn(disabled=True, format="₹%.2f")})
-            
-            current_items = edited_df.to_dict(orient="records")
-            mat_total = edited_df["Total Price"].sum()
-            mat_base = (edited_df["Base Rate"] * edited_df["Qty"]).sum()
-            labor_client = days_to_complete * float(global_settings.get('daily_labor_cost', 1000))
-            grand_total = mat_total + labor_client
-            profit = grand_total - (mat_base + (labor_client * 0.5))
-            
-            st.divider()
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Material", f"₹{mat_total:,.0f}")
-            c2.metric("Labor", f"₹{labor_client:,.0f}")
-            c3.metric("Grand Total", f"₹{grand_total:,.0f}")
-            
-            col_save, col_pdf = st.columns(2)
-            if col_save.button("💾 Save Estimate", type="primary"):
-                save_obj = {"items": current_items, "days": days_to_complete, "margins": {'p': active_margins['part_margin'], 'l': active_margins['labor_margin'], 'e': active_margins['extra_margin']} if use_custom else None}
-                run_query(supabase.table("clients").update({"internal_estimate": save_obj}).eq("id", target_client['id']))
-                st.toast("Saved!", icon="✅")
-            
-            pdf_bytes = create_pdf(target_client_name, current_items, days_to_complete, labor_client, grand_total)
-            col_pdf.download_button("📄 Download PDF", data=pdf_bytes, file_name=f"Estimate_{target_client_name}.pdf", mime="application/pdf")
-
-# --- TAB 4: SETTINGS ---
-with tab4:
-    st.subheader("Global Profit Defaults")
-    s = get_settings()
-    with st.form("margin_settings"):
-        c1, c2, c3 = st.columns(3)
-        p = c1.slider("Part %", 0, 100, int(s.get('part_margin', 0.15) * 100))
-        l = c2.slider("Labor %", 0, 100, int(s.get('labor_margin', 0.20) * 100))
-        e = c3.slider("Extra %", 0, 100, int(s.get('extra_margin', 0.05) * 100))
-        lc = st.number_input("Daily Labor Charge (₹)", value=float(s.get('daily_labor_cost', 1000.0)), step=100.0)
-        if st.form_submit_button("Update Defaults"):
-            run_query(supabase.table("settings").upsert({"id": 1, "part_margin": p/100, "labor_margin": l/100, "extra_margin": e/100, "daily_labor_cost": lc}))
-            st.success("Saved!")
-            st.cache_resource.clear()
-    
-    st.divider()
-    st.subheader("Inventory")
-    with st.form("inv_add"):
-        c1, c2 = st.columns([2, 1])
-        new_item = c1.text_input("Item Name")
-        rate = c2.number_input("Rate", min_value=0.0)
-        if st.form_submit_button("Add Item"):
-            run_query(supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate}))
-            st.success("Added")
-            st.rerun()
-    inv = run_query(supabase.table("inventory").select("*").order("item_name"))
-    if inv and inv.data: st.dataframe(pd.DataFrame(inv.data), use_container_width=True)
-    
-    st.divider()
-    st.subheader("👤 User Management")
-    with st.form("change_pwd"):
-        st.write(f"Change password for **{st.session_state.username}**")
-        new_p = st.text_input("New Password", type="password")
-        if st.form_submit_button("Update Profile"):
-            run_query(supabase.table("users").update({"password": new_p}).eq("username", st.session_state.username))
-            st.success("Profile Updated!")
