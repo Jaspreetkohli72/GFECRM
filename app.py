@@ -245,16 +245,45 @@ with tab1:
             if client.get('internal_estimate'):
                 st.divider()
                 st.subheader("📄 Saved Estimate")
+                
                 est_data = client['internal_estimate']
+                saved_items = []
+                saved_days = 1.0
+                
                 if isinstance(est_data, dict):
-                    items_df = pd.DataFrame(est_data.get('items', []))
-                else:
-                    items_df = pd.DataFrame(est_data) if isinstance(est_data, list) else pd.DataFrame()
-
-                if not items_df.empty:
+                    saved_items = est_data.get('items', [])
+                    saved_days = est_data.get('days', 1.0)
+                elif isinstance(est_data, list):
+                    saved_items = est_data
+                
+                if saved_items:
+                    items_df = pd.DataFrame(saved_items)
+                    
+                    if "Total Price" not in items_df.columns and "Total (Internal)" in items_df.columns:
+                         items_df["Total Price"] = items_df["Total (Internal)"]
+                    
                     if "Total Price" in items_df.columns:
                         st.dataframe(items_df, use_container_width=True)
-                        st.metric("Total Quoted", f"₹{items_df['Total Price'].sum():,.2f}")
+                        
+                        gs = get_settings()
+                        mat_total = items_df['Total Price'].sum()
+                        labor_total = float(saved_days) * float(gs.get('daily_labor_cost', 1000))
+                        grand_total = mat_total + labor_total
+                        
+                        m1, m2, m3 = st.columns(3)
+                        m1.metric("Material", f"₹{mat_total:,.0f}")
+                        m2.metric("Labor", f"₹{labor_total:,.0f}", help=f"{saved_days} Days")
+                        m3.metric("Grand Total", f"₹{grand_total:,.0f}")
+                        
+                        pdf_bytes = create_pdf(client['name'], saved_items, saved_days, labor_total, grand_total)
+                        st.download_button(
+                            label="📄 Download PDF",
+                            data=pdf_bytes,
+                            file_name=f"Estimate_{client['name']}.pdf",
+                            mime="application/pdf"
+                        )
+                else:
+                    st.warning("Estimate data appears empty.")
 
 # --- TAB 2: NEW CLIENT ---
 with tab2:
@@ -265,7 +294,7 @@ with tab2:
         if loc_button:
             lat = loc_button['coords']['latitude']
             long = loc_button['coords']['longitude']
-            st.session_state['new_loc_val'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{long}"
+            st.session_state['new_loc_val'] = f"https://maps.google.com/?q={lat},{long}"
             st.success("Location Captured! See field below.")
 
     with st.form("add_client_form"):
