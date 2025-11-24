@@ -3,3 +3,4 @@ supabase
 pandas
 geopy
 psycopg2-binary
+fpdf

@@ -2,6 +2,7 @@ import streamlit as st
 from supabase import create_client
 import pandas as pd
 from datetime import datetime
+from fpdf import FPDF
 
 # ---------------------------
 # 1. SETUP & CONNECTION
@@ -53,7 +54,7 @@ def run_query(query_func):
 
 def get_settings():
     """Fetch settings with safety defaults."""
-    defaults = {"part_margin": 0.15, "labor_margin": 0.20, "extra_margin": 0.05}
+    defaults = {"part_margin": 0.15, "labor_margin": 0.20, "extra_margin": 0.05, "daily_labor_cost": 1000.0}
     try:
         response = run_query(supabase.table("settings").select("*"))
         if response and response.data:
@@ -62,6 +63,46 @@ def get_settings():
     except:
         pass
     return defaults
+
+def create_pdf(client_name, items, labor_days, labor_total, grand_total):
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", 'B', 16)
+            pdf.cell(0, 10, "Jugnoo - Estimate", ln=True, align='C')
+            pdf.ln(10)
+            
+            pdf.set_font("Arial", '', 12)
+            pdf.cell(0, 10, f"Client: {client_name}", ln=True)
+            pdf.cell(0, 10, f"Date: {datetime.now().strftime('%Y-%m-%d')}", ln=True)
+            pdf.ln(5)
+            
+            # Table Header
+            pdf.set_font("Arial", 'B', 12)
+            pdf.cell(100, 10, "Item", 1)
+            pdf.cell(30, 10, "Qty", 1)
+            pdf.cell(60, 10, "Amount", 1)
+            pdf.ln()
+            
+            # Table Rows
+            pdf.set_font("Arial", '', 12)
+            for item in items:
+                pdf.cell(100, 10, str(item['Item']), 1)
+                pdf.cell(30, 10, str(item['Qty']), 1)
+                # Client sees the Price including margin
+                pdf.cell(60, 10, f"{item['Total Price']:.2f}", 1)
+                pdf.ln()
+            
+            # Totals
+            pdf.ln(5)
+            pdf.cell(130, 10, f"Labor / Installation ({labor_days} Days)", 1)
+            pdf.cell(60, 10, f"{labor_total:.2f}", 1)
+            pdf.ln()
+            
+            pdf.set_font("Arial", 'B', 14)
+            pdf.cell(130, 10, "Grand Total", 1)
+            pdf.cell(60, 10, f"{grand_total:.2f}", 1)
+            
+            return pdf.output(dest='S').encode('latin-1')
 
 # ---------------------------
 # 3. UI TABS
@@ -173,11 +214,10 @@ with tab2:
             }))
             st.success("Client Added!")
 
-# --- TAB 3: ESTIMATOR ---
+# --- TAB 3: ESTIMATOR (PDF & LABOR UPDATE) ---
 with tab3:
     st.subheader("Estimator Engine")
     
-    # 1. Select Client
     all_clients = run_query(supabase.table("clients").select("id, name, internal_estimate").neq("status", "Closed"))
     client_dict = {c['name']: c for c in all_clients.data} if all_clients and all_clients.data else {}
     
@@ -186,14 +226,16 @@ with tab3:
     if target_client_name:
         target_client = client_dict[target_client_name]
         
-        # Load Logic
+        # Load Saved Data
         saved_est = target_client.get('internal_estimate')
         loaded_items = []
         saved_margins = None
+        saved_days = 1.0 # Default
         
         if isinstance(saved_est, dict):
             loaded_items = saved_est.get('items', [])
             saved_margins = saved_est.get('margins')
+            saved_days = saved_est.get('days', 1.0)
         elif isinstance(saved_est, list):
             loaded_items = saved_est
             
@@ -203,16 +245,15 @@ with tab3:
 
         st.divider()
         
-        # 2. Margins
+        # Custom Margins & Labor Logic
         global_settings = get_settings()
-        use_custom = st.checkbox("🛠️ Use Custom Margins for this Client", value=(saved_margins is not None))
+        use_custom = st.checkbox("🛠️ Use Custom Margins", value=(saved_margins is not None))
         
         if use_custom:
             def_p = int((saved_margins['p'] if saved_margins else global_settings['part_margin']) * 100)
             def_l = int((saved_margins['l'] if saved_margins else global_settings['labor_margin']) * 100)
             def_e = int((saved_margins['e'] if saved_margins else global_settings['extra_margin']) * 100)
             
-            st.write("**Custom Profit Settings (0-100%)**")
             mc1, mc2, mc3 = st.columns(3)
             cust_p = mc1.slider("Part %", 0, 100, def_p, key="cp") / 100
             cust_l = mc2.slider("Labor %", 0, 100, def_l, key="cl") / 100
@@ -222,9 +263,12 @@ with tab3:
         else:
             active_margins = global_settings
 
+        # LABOR DAYS SLIDER
+        days_to_complete = st.slider("⏳ Days to Complete Work", 0.5, 30.0, float(saved_days), 0.5)
+
         st.divider()
 
-        # 3. Add Item Form
+        # Add Item Form
         inv_data = run_query(supabase.table("inventory").select("*"))
         if inv_data and inv_data.data:
             inv_map = {i['item_name']: i['base_rate'] for i in inv_data.data}
@@ -240,7 +284,7 @@ with tab3:
                     })
                     st.rerun()
 
-        # 4. Editable Grid & Calc
+        # Calculation & PDF
         if st.session_state[ss_key]:
             margin_mult = 1 + active_margins['part_margin'] + active_margins['labor_margin'] + active_margins['extra_margin']
             
@@ -252,7 +296,7 @@ with tab3:
             df["Unit Price (Calc)"] = df["Base Rate"] * margin_mult
             df["Total Price"] = df["Unit Price (Calc)"] * df["Qty"]
             
-            st.write("#### Estimate Items (Edit Qty or Delete Rows)")
+            st.write("#### Estimate Items")
             edited_df = st.data_editor(
                 df,
                 num_rows="dynamic",
@@ -269,19 +313,27 @@ with tab3:
             
             current_items = edited_df.to_dict(orient="records")
             
-            total_client = edited_df["Total Price"].sum()
-            total_base = (edited_df["Base Rate"] * edited_df["Qty"]).sum()
-            profit = total_client - total_base
+            # Totals
+            material_total_client = edited_df["Total Price"].sum()
+            material_base = (edited_df["Base Rate"] * edited_df["Qty"]).sum()
+            
+            # LABOR COST CALCULATION
+            labor_cost_client = days_to_complete * float(global_settings.get('daily_labor_cost', 1000))
+            grand_total = material_total_client + labor_cost_client
+            profit = grand_total - (material_base + (labor_cost_client * 0.5)) # Assuming 50% of labor charge is actual cost to you, rest is profit/buffer
             
             st.divider()
             c1, c2, c3 = st.columns(3)
-            c1.metric("Base Cost", f"₹{total_base:,.0f}")
-            c2.metric("Client Quote", f"₹{total_client:,.0f}")
-            c3.metric("Projected Profit", f"₹{profit:,.0f}", delta="Profit")
+            c1.metric("Material Total", f"₹{material_total_client:,.0f}")
+            c2.metric("Labor Cost", f"₹{labor_cost_client:,.0f}", help=f"{days_to_complete} days @ ₹{global_settings.get('daily_labor_cost')}/day")
+            c3.metric("Grand Total (Client)", f"₹{grand_total:,.0f}")
             
-            if st.button("💾 Save Estimate", type="primary"):
+            col_save, col_pdf = st.columns(2)
+            
+            if col_save.button("💾 Save Estimate", type="primary"):
                 save_obj = {
                     "items": current_items,
+                    "days": days_to_complete,
                     "margins": {
                         'p': active_margins['part_margin'],
                         'l': active_margins['labor_margin'],
@@ -293,16 +345,23 @@ with tab3:
                 }).eq("id", target_client['id']))
                 st.toast("Estimate Saved!", icon="✅")
 
-# --- TAB 4: SETTINGS ---
+            # PDF GENERATION
+            pdf_bytes = create_pdf(target_client_name, current_items, days_to_complete, labor_cost_client, grand_total)
+            col_pdf.download_button(
+                label="📄 Download PDF Estimate",
+                data=pdf_bytes,
+                file_name=f"Estimate_{target_client_name}.pdf",
+                mime="application/pdf"
+            )
+
+# --- TAB 4: SETTINGS (LABOR COST ADDED) ---
 with tab4:
     st.subheader("Global Settings")
     s = get_settings()
     
     with st.form("margin_settings"):
         st.write("**Global Profit Defaults (0-100%)**")
-        
         c1, c2, c3 = st.columns(3)
-        
         p_curr = int(s.get('part_margin', 0.15) * 100)
         l_curr = int(s.get('labor_margin', 0.20) * 100)
         e_curr = int(s.get('extra_margin', 0.05) * 100)
@@ -311,12 +370,16 @@ with tab4:
         l = c2.slider("Labor Margin %", 0, 100, l_curr)
         e = c3.slider("Extra Margin %", 0, 100, e_curr)
         
+        st.write("**Labor Settings**")
+        labor_cost = st.number_input("Daily Labor Charge (₹)", value=float(s.get('daily_labor_cost', 1000.0)), step=100.0)
+        
         if st.form_submit_button("Update Global Defaults"):
             run_query(supabase.table("settings").upsert({
                 "id": 1, 
                 "part_margin": p / 100.0, 
                 "labor_margin": l / 100.0, 
-                "extra_margin": e / 100.0
+                "extra_margin": e / 100.0,
+                "daily_labor_cost": labor_cost
             }))
             st.success("Settings Saved!")
             st.cache_resource.clear()
