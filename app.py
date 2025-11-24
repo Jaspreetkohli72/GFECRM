@@ -43,8 +43,10 @@ supabase = init_connection()
 # ---------------------------
 # 2. AUTHENTICATION (COOKIES)
 # ---------------------------
+# FIX: Removed invalid argument 'experimental_allow_widgets'
+@st.cache_resource
 def get_manager():
-    return stx.CookieManager()
+    return stx.CookieManager(key="auth_cookie_manager")
 
 cookie_manager = get_manager()
 
@@ -58,37 +60,46 @@ def check_login(username, password):
 def login_section():
     st.title("🔒 Jugnoo CRM")
     
-    # Check if cookie exists
+    # 1. Try to get cookie
+    # Note: We add a small sleep to allow the cookie manager to mount
+    time.sleep(0.1)
     cookie_user = cookie_manager.get(cookie="jugnoo_user")
     
-    # If cookie exists, auto-login
-    if cookie_user and not st.session_state.get('logged_in'):
+    # 2. If Cookie found, auto-login
+    if cookie_user:
         st.session_state.logged_in = True
         st.session_state.username = cookie_user
-        return
+        return 
 
+    # 3. If already logged in via session state, skip
     if st.session_state.get('logged_in'):
         return
 
+    # 4. Show Login Form
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         with st.form("login"):
             st.subheader("Sign In")
             user = st.text_input("Username")
             pwd = st.text_input("Password", type="password")
+            
             if st.form_submit_button("Login", type="primary"):
                 if check_login(user, pwd):
                     st.session_state.logged_in = True
                     st.session_state.username = user
-                    # FIX: Use datetime object, not timestamp float
+                    
+                    # Set Cookie (7 Days)
                     expires = datetime.now() + timedelta(days=7)
                     cookie_manager.set("jugnoo_user", user, expires_at=expires)
+                    
+                    st.success("Login Successful!")
+                    time.sleep(0.5)
                     st.rerun()
                 else:
                     st.error("Invalid Credentials")
     st.stop()
 
-# CALL LOGIN LOGIC BEFORE APP
+# Run Login Check
 login_section()
 
 # ---------------------------
@@ -154,7 +165,7 @@ if not supabase: st.stop()
 
 tab1, tab2, tab3, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "⚙️ Settings"])
 
-# --- TAB 1: DASHBOARD (FIXED GPS) ---
+# --- TAB 1: DASHBOARD ---
 with tab1:
     st.subheader("Active Projects")
     response = run_query(supabase.table("clients").select("*").order("created_at", desc=True))
@@ -176,24 +187,23 @@ with tab1:
             st.markdown("### 🛠️ Manage Client")
             col_details, col_status = st.columns([1.5, 1])
             
-            # 1. EDIT DETAILS (GPS ADDED HERE)
             with col_details:
                 st.write("**Edit Details**")
                 
-                # GPS Button OUTSIDE Form
-                gps_dash = get_geolocation(component_key=f"gps_{client['id']}")
-                if gps_dash:
-                    lat_d = gps_dash['coords']['latitude']
-                    long_d = gps_dash['coords']['longitude']
-                    st.session_state[f"loc_{client['id']}"] = f"https://maps.google.com/?q={lat_d},{long_d}"
-                    st.toast("Location Updated!", icon="📍")
+                # GPS Button for Dashboard (Visible Toggle)
+                if st.toggle("Show GPS Button", key="tgl_dash"):
+                    gps_dash = get_geolocation(component_key=f"gps_{client['id']}")
+                    if gps_dash:
+                        lat_d = gps_dash['coords']['latitude']
+                        long_d = gps_dash['coords']['longitude']
+                        st.session_state[f"loc_{client['id']}"] = f"https://maps.google.com/?q={lat_d},{long_d}"
+                        st.info("Location received! Check the Maps Link field below.")
 
                 with st.form("edit_client_details"):
                     new_name = st.text_input("Name", value=client['name'])
                     new_phone = st.text_input("Phone", value=client.get('phone', ''))
                     new_addr = st.text_area("Address", value=client.get('address', ''))
                     
-                    # Read from session state if GPS grabbed, else DB value
                     current_loc = st.session_state.get(f"loc_{client['id']}", client.get('location', ''))
                     new_loc = st.text_input("Maps Link (Click GPS above to fill)", value=current_loc)
                     
@@ -205,7 +215,6 @@ with tab1:
                         time.sleep(0.5)
                         st.rerun()
 
-            # 2. STATUS & DATE
             with col_status:
                 st.write("**Project Status**")
                 status_options = ["Estimate Given", "Order Received", "Work In Progress", "Work Done", "Closed"]
@@ -216,16 +225,13 @@ with tab1:
                 
                 new_status = st.selectbox("Update Status", status_options, index=curr_idx, key=f"st_{client['id']}")
                 
-                # Start Date Picker
                 start_date_val = None
                 if new_status in ["Order Received", "Work In Progress", "Work Done"]:
                     current_date_str = client.get('start_date')
-                    # Handle None or existing date
                     if current_date_str:
                         default_date = datetime.strptime(current_date_str, '%Y-%m-%d').date()
                     else:
                         default_date = datetime.now().date()
-                        
                     start_date_val = st.date_input("📅 Start Date", value=default_date)
 
                 if st.button("Update Status", key=f"btn_st_{client['id']}"):
@@ -238,7 +244,6 @@ with tab1:
                     time.sleep(0.5)
                     st.rerun()
 
-            # 3. ESTIMATE VIEW
             if client.get('internal_estimate'):
                 st.divider()
                 st.subheader("📄 Saved Estimate")
@@ -257,14 +262,14 @@ with tab1:
 with tab2:
     st.subheader("Add New Client")
     
-    st.write("📍 **Auto-Fill Location**")
-    loc_button = get_geolocation(component_key="gps_btn_new")
-    
-    if loc_button:
-        lat = loc_button['coords']['latitude']
-        long = loc_button['coords']['longitude']
-        st.session_state['new_loc_val'] = f"https://maps.google.com/?q={lat},{long}"
-        st.success("Location Captured!")
+    # GPS Button for New Client (Visible Toggle)
+    if st.toggle("📍 Get Current Location", key="tgl_new"):
+        loc_button = get_geolocation(component_key="gps_btn_new")
+        if loc_button:
+            lat = loc_button['coords']['latitude']
+            long = loc_button['coords']['longitude']
+            st.session_state['new_loc_val'] = f"https://maps.google.com/?q={lat},{long}"
+            st.success("Location Captured! See field below.")
 
     with st.form("add_client_form"):
         c1, c2 = st.columns(2)
