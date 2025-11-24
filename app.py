@@ -1,337 +1,285 @@
 import streamlit as st
-import pandas as pd
 from supabase import create_client, Client
-import json
+import pandas as pd
 from datetime import datetime
 
-# --- PAGE CONFIG ---
-st.set_page_config(
-    page_title="Smart Home Business Estimator",
-    page_icon="🏠",
-    layout="wide",
-)
+# ---------------------------
+# 1. SETUP & CONNECTION
+# ---------------------------
+st.set_page_config(page_title="Jugnoo CRM", page_icon="🏗️", layout="wide")
 
-# --- DATABASE CONNECTION ---
+# CSS to hide Streamlit footer and cleaner look
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
 
-# Initialize connection.
-# Uses st.cache_resource to only run once.
 @st.cache_resource
-def init_connection() -> Client:
-    """Initializes a connection to the Supabase database."""
-    try:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
-        return create_client(url, key)
-    except Exception as e:
-        st.error(f"Error connecting to Supabase: {e}")
-        st.stop()
+def init_connection():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
 supabase = init_connection()
 
-# --- HELPER FUNCTIONS ---
-
-def run_query(query, params=None):
-    """Executes a query on the Supabase database."""
+# ---------------------------
+# 2. HELPER FUNCTIONS
+# ---------------------------
+def run_query(query_func):
     try:
-        if params:
-            return supabase.table(query).select("*").execute()
-        else:
-            return supabase.from_(query).select("*").execute()
+        return query_func.execute()
     except Exception as e:
-        st.error(f"Error running query '{query}': {e}")
+        st.error(f"Database Error: {e}")
         return None
 
-def get_clients():
-    """Fetches all clients from the database."""
-    return supabase.table("clients").select("*").order("id", desc=True).execute().data
-
-def get_inventory():
-    """Fetches all inventory items from the database."""
-    return supabase.table("inventory").select("*").order("item_name").execute().data
-
 def get_settings():
-    """Fetches all settings from the database."""
-    settings_data = supabase.table("settings").select("*").execute().data
-    return {item['setting_name']: item['value'] for item in settings_data}
+    response = run_query(supabase.table("settings").select("*"))
+    if response and response.data:
+        return response.data[0]
+    return {"part_margin": 0.15, "labor_margin": 0.20, "extra_margin": 0.05}
 
-# --- UI TABS ---
+# ---------------------------
+# 3. UI TABS
+# ---------------------------
+st.title("🏗️ Jugnoo CRM")
+tab1, tab2, tab3, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Smart Estimator", "⚙️ Inventory"])
 
-st.title("🏠 Smart Home Business Estimator")
-
-tab1, tab2, tab3, tab4 = st.tabs([
-    "Dashboard & Active Clients",
-    "New Client",
-    "Estimator",
-    "Inventory & Settings"
-])
-
-# --- TAB 1: DASHBOARD & ACTIVE CLIENTS ---
+# --- TAB 1: DASHBOARD ---
 with tab1:
-    st.header("Active Clients")
-    clients = get_clients()
+    st.subheader("Active Projects")
+    response = run_query(supabase.table("clients").select("*").order("created_at", desc=True))
+    
+    if response and response.data:
+        # Prepare Data for Display
+        df = pd.DataFrame(response.data)
+        
+        # Display Summary
+        display_cols = ['name', 'status', 'phone', 'address']
+        # Handle optional columns safely
+        if 'next_action_date' in df.columns: display_cols.append('next_action_date')
+        
+        st.dataframe(df[display_cols], use_container_width=True, hide_index=True)
+        
+        st.divider()
+        st.subheader("Client Details & Actions")
+        
+        # Client Selector
+        client_opts = {row['name']: row for row in response.data}
+        selected_client_name = st.selectbox("Select Client to Manage", list(client_opts.keys()), index=None)
+        
+        if selected_client_name:
+            client = client_opts[selected_client_name]
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.info(f"**Current Status:** {client['status']}")
+                st.write(f"📞 {client['phone']}")
+                st.write(f"📍 {client['address']}")
+                if client.get('location'):
+                    st.markdown(f"[Open in Maps]({client['location']})")
+            
+            with c2:
+                # Status Update
+                st.write("**Update Status**")
+                status_options = ["Estimate Given", "Order Received", "Work In Progress", "Work Done", "Closed"]
+                
+                # Find current index safely
+                try:
+                    curr_idx = status_options.index(client['status'])
+                except:
+                    curr_idx = 0
+                    
+                new_status = st.selectbox("Change Status", status_options, index=curr_idx, key=f"status_{client['id']}")
+                if new_status != client['status']:
+                    if st.button("Update Status", key="btn_update"):
+                        run_query(supabase.table("clients").update({"status": new_status}).eq("id", client['id']))
+                        st.success("Updated!")
+                        st.rerun()
 
-    if not clients:
-        st.warning("No clients found. Add a new client to get started.")
-    else:
-        active_clients = [c for c in clients if c['status'] != 'Paid']
-        if not active_clients:
-            st.success("All clients are settled up! No active projects.")
-        else:
-            df_clients = pd.DataFrame(active_clients)[['name', 'status', 'phone', 'address', 'next_action_date']]
-            st.dataframe(df_clients, use_container_width=True)
-
-            for client in active_clients:
-                with st.expander(f"{client['name']} - {client['status']}"):
-                    col1, col2 = st.columns(2)
-
-                    with col1:
-                        st.subheader("Client Details")
-                        st.write(f"**Phone:** {client['phone']}")
-                        st.write(f"**Address:** {client['address']}")
-                        st.write(f"**Location:** [Open Map]({client['gmaps_link']})")
-                        if client['start_date']:
-                            st.info(f"Work started on: {datetime.strptime(client['start_date'], '%Y-%m-%d').strftime('%d %b %Y')}")
-
-                        st.subheader("Update Status")
-                        if client['status'] == 'Active':
-                            start_date = st.date_input("Select Work Start Date", key=f"date_{client['id']}")
-                            if st.button("Mark Order Received", key=f"order_{client['id']}"):
-                                supabase.table("clients").update({
-                                    "status": "Order Received",
-                                    "start_date": str(start_date)
-                                }).eq("id", client['id']).execute()
-                                st.success(f"Status for {client['name']} updated to 'Order Received'.")
-                                st.rerun()
-
-                        if client['status'] == 'Order Received':
-                            if st.button("Mark Work Done", key=f"work_{client['id']}"):
-                                supabase.table("clients").update({"status": "Work Done"}).eq("id", client['id']).execute()
-                                st.success(f"Status for {client['name']} updated to 'Work Done'.")
-                                st.rerun()
-
-                        if client['status'] == 'Work Done':
-                            with st.form(f"payment_form_{client['id']}"):
-                                settlement = st.number_input("Final Settlement Amount (₹)", min_value=0.0, step=100.0, key=f"settle_{client['id']}")
-                                submitted = st.form_submit_button("Mark as Paid & Archive")
-                                if submitted:
-                                    supabase.table("clients").update({
-                                        "status": "Paid",
-                                        "final_settlement_amount": settlement
-                                    }).eq("id", client['id']).execute()
-                                    st.success(f"Client {client['name']} marked as Paid and archived.")
-                                    st.rerun()
-
-                    with col2:
-                        if client['internal_estimate'] and client['client_estimate']:
-                            st.subheader("Internal Estimate")
-                            internal_est = pd.DataFrame(client['internal_estimate'])
-                            st.dataframe(internal_est, use_container_width=True)
-                            total_profit = internal_est['Profit'].sum()
-                            st.metric("Total Estimated Profit", f"₹{total_profit:,.2f}")
-
-
-                            st.subheader("Client Estimate")
-                            client_est = pd.DataFrame(client['client_estimate'])
-                            st.dataframe(client_est, use_container_width=True)
-                            total_client_cost = client_est['Final Rate'].sum()
-                            st.metric("Total Client Cost", f"₹{total_client_cost:,.2f}")
-                        else:
-                            st.info("No estimate has been created for this client yet.")
-
+            # --- VIEW SAVED ESTIMATE (FIXED ERROR HERE) ---
+            st.divider()
+            st.write("### Saved Estimate")
+            
+            # Check if internal_estimate is not None and is a list/dict
+            est_data = client.get('internal_estimate')
+            
+            if est_data and isinstance(est_data, list) and len(est_data) > 0:
+                try:
+                    saved_df = pd.DataFrame(est_data)
+                    st.dataframe(saved_df, use_container_width=True)
+                    
+                    # Calculate Total
+                    if 'Total (Internal)' in saved_df.columns:
+                        total_profit = saved_df['Total (Internal)'].sum() - (saved_df['Base Rate'] * saved_df['Qty']).sum()
+                        st.metric("Projected Profit", f"₹{total_profit:,.2f}")
+                except Exception as e:
+                    st.warning("Could not load estimate details (Data format issue).")
+            else:
+                st.info("No estimate saved for this client yet.")
 
 # --- TAB 2: NEW CLIENT ---
 with tab2:
-    st.header("Create a New Client")
-    with st.form("new_client_form"):
-        name = st.text_input("Client Name*")
-        phone = st.text_input("Phone Number")
-        address = st.text_area("Site Address")
-        gmaps = st.text_input("Google Maps Link or Lat/Long")
+    st.subheader("Add New Client")
+    with st.form("new_client"):
+        c1, c2 = st.columns(2)
+        name = c1.text_input("Name")
+        phone = c2.text_input("Phone")
+        address = st.text_area("Address")
+        loc = st.text_input("Maps Link")
+        
+        if st.form_submit_button("Create Client"):
+            run_query(supabase.table("clients").insert({
+                "name": name, "phone": phone, "address": address, "location": loc, 
+                "status": "Estimate Given", "created_at": datetime.now().isoformat()
+            }))
+            st.success("Added!")
 
-        submitted = st.form_submit_button("Create Client")
-        if submitted:
-            if not name:
-                st.warning("Client Name is a required field.")
-            else:
-                try:
-                    supabase.table("clients").insert({
-                        "name": name,
-                        "phone": phone,
-                        "address": address,
-                        "gmaps_link": gmaps
-                    }).execute()
-                    st.success(f"Client '{name}' created successfully!")
-                except Exception as e:
-                    st.error(f"An error occurred: {e}")
-
-# --- TAB 3: ESTIMATOR ---
+# --- TAB 3: SMART ESTIMATOR ---
 with tab3:
-    st.header("Create an Estimate")
-    clients = get_clients()
-    inventory = get_inventory()
-    settings = get_settings()
-
-    if not clients or not inventory:
-        st.warning("Please add at least one client and one inventory item before using the estimator.")
-    else:
-        active_clients = [c for c in clients if c['status'] != 'Paid']
-        client_options = {c['name']: c['id'] for c in active_clients}
-        selected_client_name = st.selectbox("Select a Client", options=client_options.keys())
-
-        st.subheader("Select Inventory Items")
-        inventory_df = pd.DataFrame(inventory)
-        inventory_df['Quantity'] = 0
+    st.subheader("Create Estimate")
+    
+    # 1. Select Client
+    clients = run_query(supabase.table("clients").select("id, name").neq("status", "Closed"))
+    if clients.data:
+        client_map = {c['name']: c['id'] for c in clients.data}
+        target_client = st.selectbox("Select Client", list(client_map.keys()))
         
-        # Multiselect for items
-        selected_items = st.multiselect(
-            "Choose items for the estimate",
-            options=inventory_df['item_name'].tolist()
-        )
-        
-        estimate_items = []
-        if selected_items:
-            for item in selected_items:
-                default_rate = inventory_df[inventory_df['item_name'] == item]['base_rate'].iloc[0]
-                quantity = st.number_input(f"Quantity for {item} (Rate: ₹{default_rate})", min_value=1, step=1, key=item)
-                estimate_items.append({"item_name": item, "quantity": quantity, "base_rate": float(default_rate)})
-
-        if estimate_items:
-            st.subheader("Estimate Calculation")
+        if target_client:
+            st.divider()
             
-            part_margin = settings.get('part_margin_percent', 0) / 100
-            labor_margin = settings.get('labor_margin_percent', 0) / 100
-            extra_margin = settings.get('extra_margin_percent', 0) / 100
+            # 2. Get Data needed for calculation
+            settings = get_settings()
+            inventory_resp = run_query(supabase.table("inventory").select("item_name, base_rate"))
+            
+            if inventory_resp.data:
+                inv_df = pd.DataFrame(inventory_resp.data)
+                item_list = inv_df['item_name'].tolist()
+                
+                # 3. FAST ENTRY TABLE (Data Editor)
+                st.info("👇 Add items below. Select Item from the dropdown and type Quantity.")
+                
+                # Initialize session state for the editor if needed
+                if "editor_rows" not in st.session_state:
+                    st.session_state.editor_rows = [{"Item": None, "Qty": 1}]
 
-            internal_breakdown = []
-            client_facing = []
-
-            for item in estimate_items:
-                base_cost = item['base_rate'] * item['quantity']
-                part_profit = base_cost * part_margin
-                labor_profit = base_cost * labor_margin
-                extra_profit = base_cost * extra_margin
-                total_profit = part_profit + labor_profit + extra_profit
-                final_rate = base_cost + total_profit
-
-                internal_breakdown.append({
-                    "Item": item['item_name'],
-                    "Qty": item['quantity'],
-                    "Base Cost": base_cost,
-                    "Part Profit": part_profit,
-                    "Labor Profit": labor_profit,
-                    "Extra Profit": extra_profit,
-                    "Profit": total_profit,
-                    "Final Rate": final_rate,
-                })
-
-                client_facing.append({
-                    "Item": item['item_name'],
-                    "Quantity": item['quantity'],
-                    "Final Rate": final_rate,
-                })
-
-            st.subheader("Internal Estimate (With Profit Breakdown)")
-            internal_df = pd.DataFrame(internal_breakdown)
-            st.dataframe(internal_df, use_container_width=True)
-            st.metric("Total Estimated Cost for Client", f"₹{internal_df['Final Rate'].sum():,.2f}")
-            st.metric("Total Estimated Profit", f"₹{internal_df['Profit'].sum():,.2f}")
-
-            st.subheader("Client-Facing Estimate")
-            client_df = pd.DataFrame(client_facing)
-            st.dataframe(client_df, use_container_width=True)
-
-            if st.button("Save Estimate to Client"):
-                client_id = client_options[selected_client_name]
-                try:
-                    supabase.table("clients").update({
-                        "internal_estimate": json.dumps(internal_breakdown),
-                        "client_estimate": json.dumps(client_facing),
-                    }).eq("id", client_id).execute()
-                    st.success(f"Estimate saved for {selected_client_name}!")
-                except Exception as e:
-                    st.error(f"Failed to save estimate: {e}")
-
-
-# --- TAB 4: INVENTORY & SETTINGS ---
-with tab4:
-    st.header("Inventory Management")
-    inventory = get_inventory()
-    if inventory:
-        inventory_df = pd.DataFrame(inventory).sort_values("id")
-        edited_inventory = st.data_editor(
-            inventory_df,
-            num_rows="dynamic",
-            use_container_width=True,
-            column_config={
-                "id": st.column_config.NumberColumn("ID", disabled=True),
-                "item_name": "Item Name",
-                "base_rate": st.column_config.NumberColumn(
-                    "Base Rate (₹)",
-                    min_value=0,
-                    format="₹%.2f"
+                edited_df = st.data_editor(
+                    st.session_state.editor_rows,
+                    num_rows="dynamic",
+                    column_config={
+                        "Item": st.column_config.SelectboxColumn(
+                            "Item Name",
+                            help="Select item from inventory",
+                            width="medium",
+                            options=item_list,
+                            required=True
+                        ),
+                        "Qty": st.column_config.NumberColumn(
+                            "Quantity",
+                            min_value=0.5,
+                            step=0.5,
+                            required=True
+                        )
+                    },
+                    hide_index=True,
+                    use_container_width=True
                 )
-            }
-        )
 
-        if st.button("Save Inventory Changes"):
-            # This is a simplified save; for production, you'd need to handle updates, inserts, deletes separately.
-            try:
-                # Simple approach: delete all and re-insert. Not ideal for large datasets due to performance and ID changes.
-                # A more robust solution would track changes row by row.
-                supabase.table("inventory").delete().neq("id", -1).execute() # Delete all
-                data_to_insert = edited_inventory.drop(columns=['id']).to_dict(orient='records')
-                supabase.table("inventory").insert(data_to_insert).execute()
-                st.success("Inventory updated successfully!")
-                st.rerun()
+                # 4. LIVE CALCULATION
+                if not pd.DataFrame(edited_df).empty:
+                    # Filter out empty rows
+                    valid_rows = [r for r in edited_df if r["Item"] is not None]
+                    
+                    if valid_rows:
+                        calc_df = pd.DataFrame(valid_rows)
+                        
+                        # Merge with base rates
+                        calc_df = calc_df.merge(inv_df, left_on="Item", right_on="item_name", how="left")
+                        
+                        # Apply Margins
+                        p_marg = settings['part_margin']
+                        l_marg = settings['labor_margin']
+                        e_marg = settings['extra_margin']
+                        
+                        # Internal Cost (With Profit Breakdown)
+                        calc_df['Base Rate'] = calc_df['base_rate']
+                        calc_df['Internal Rate'] = calc_df['Base Rate'] * (1 + p_marg + l_marg + e_marg)
+                        calc_df['Total (Internal)'] = calc_df['Internal Rate'] * calc_df['Qty']
+                        
+                        # Client Rate (Rounded/Clean)
+                        calc_df['Client Rate'] = calc_df['Internal Rate'] # Can add extra buffer if needed
+                        calc_df['Total (Client)'] = calc_df['Client Rate'] * calc_df['Qty']
+                        
+                        # Show Results
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.write("### 🔒 Internal View (For You)")
+                            st.dataframe(calc_df[['Item', 'Qty', 'Base Rate', 'Total (Internal)']], hide_index=True)
+                            my_profit = calc_df['Total (Internal)'].sum() - (calc_df['Base Rate'] * calc_df['Qty']).sum()
+                            st.success(f"💰 Your Profit: ₹{my_profit:,.2f}")
+                            
+                        with c2:
+                            st.write("### 📄 Client View")
+                            client_view = calc_df[['Item', 'Qty', 'Client Rate', 'Total (Client)']]
+                            st.dataframe(client_view, hide_index=True)
+                            st.metric("Client Total", f"₹{client_view['Total (Client)'].sum():,.2f}")
+                            
+                        # Save Button
+                        if st.button("💾 Save Estimate to Client Profile", type="primary"):
+                            # Convert to JSON serializable format
+                            json_data = calc_df[['Item', 'Qty', 'Base Rate', 'Internal Rate', 'Total (Internal)']].to_dict(orient='records')
+                            
+                            run_query(supabase.table("clients").update({
+                                "internal_estimate": json_data
+                            }).eq("id", client_map[target_client]))
+                            
+                            st.balloons()
+                            st.toast("Estimate Saved Successfully!")
 
-            except Exception as e:
-                st.error(f"Error updating inventory: {e}")
+# --- TAB 4: SETTINGS & INVENTORY ---
+with tab4:
+    st.subheader("Inventory Management")
+    inv_resp = run_query(supabase.table("inventory").select("*").order("item_name"))
+    
+    if inv_resp and inv_resp.data:
+        current_inv = pd.DataFrame(inv_resp.data)
+        
+        # We use a trick: Edit locally, but for Supabase usually we delete/insert or update rows.
+        # For simplicity in this free version: We just allow adding new items via a form, 
+        # and editing existing rates via a smaller editor.
+        
+        st.write("**Edit Base Rates**")
+        updated_inv = st.data_editor(current_inv, num_rows="dynamic", key="inv_editor")
+        
+        # Note: True syncing of deleted rows requires more logic. 
+        # This button simply upserts (adds/updates) modified rows.
+        if st.button("Sync Inventory Changes"):
+            # Convert DF to list of dicts
+            records = updated_inv.to_dict(orient='records')
+            # Upsert into Supabase
+            for row in records:
+                # If ID exists, it updates. If new (no ID), might fail without proper setup.
+                # Safer: Insert new items via form below, Update rates here.
+                if row.get('id'):
+                    run_query(supabase.table("inventory").update({
+                        "item_name": row['item_name'], 
+                        "base_rate": row['base_rate']
+                    }).eq("id", row['id']))
+            st.success("Inventory Rates Updated!")
 
     st.divider()
-
-    st.header("Global Profit Margins")
-    settings = get_settings()
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        part_margin = st.slider(
-            "Parts Margin (%)", 
-            min_value=0.0, max_value=100.0, 
-            value=float(settings.get('part_margin_percent', 0)), 
-            step=0.5
-        )
-    with col2:
-        labor_margin = st.slider(
-            "Labor Margin (%)", 
-            min_value=0.0, max_value=100.0, 
-            value=float(settings.get('labor_margin_percent', 0)), 
-            step=0.5
-        )
-    with col3:
-        extra_margin = st.slider(
-            "Extra/Contingency Margin (%)", 
-            min_value=0.0, max_value=100.0, 
-            value=float(settings.get('extra_margin_percent', 0)), 
-            step=0.5
-        )
-        
-    if st.button("Save Global Margins"):
-        try:
-            supabase.table("settings").update({"value": part_margin}).eq("setting_name", "part_margin_percent").execute()
-            supabase.table("settings").update({"value": labor_margin}).eq("setting_name", "labor_margin_percent").execute()
-            supabase.table("settings").update({"value": extra_margin}).eq("setting_name", "extra_margin_percent").execute()
-            st.success("Global margins updated!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Failed to update settings: {e}")
-
-st.sidebar.info("App developed by Gemini.")
-st.sidebar.info("Remember to replace placeholder credentials in `.streamlit/secrets.toml`.")
-
-# Add a placeholder for next_action_date to avoid key errors if the column doesn't exist in the fetched data
-def get_clients():
-    """Fetches all clients from the database and ensures 'next_action_date' exists."""
-    data = supabase.table("clients").select("*").order("id", desc=True).execute().data
-    for item in data:
-        item.setdefault('next_action_date', None)  # Add default if key is missing
-    return data
+    st.write("**Global Margins**")
+    with st.form("margins"):
+        s = get_settings()
+        c1, c2, c3 = st.columns(3)
+        p = c1.number_input("Part Margin", value=s['part_margin'], step=0.01)
+        l = c2.number_input("Labor Margin", value=s['labor_margin'], step=0.01)
+        e = c3.number_input("Extra Margin", value=s['extra_margin'], step=0.01)
+        if st.form_submit_button("Update Margins"):
+            run_query(supabase.table("settings").update({
+                "part_margin": p, "labor_margin": l, "extra_margin": e
+            }).eq("id", 1))
+            st.success("Margins Saved")
