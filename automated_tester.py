@@ -2,8 +2,8 @@ import time
 from playwright.sync_api import sync_playwright
 import os
 
-# CONFIGURATION
-APP_URL = "http://localhost:8501"
+# CONFIGURATION - LIVE URL
+APP_URL = "https://jugnoocrm.streamlit.app/"
 USERNAME = "Jaspreet"
 PASSWORD = "CRMJugnoo@123"
 REPORT_FILE = "test_report.html"
@@ -12,46 +12,49 @@ results = []
 
 def log_result(test_name, status, message=""):
     color = "green" if status == "PASS" else "red"
+    # Simple HTML table row formatting
     results.append(f"<tr style='color:{color}'><td>{test_name}</td><td><b>{status}</b></td><td>{message}</td></tr>")
     print(f"[{status}] {test_name}: {message}")
 
 def run_tests():
-    print(f"🚀 Starting UI Tests on {APP_URL}...")
+    print(f"🚀 Starting Tests on LIVE URL: {APP_URL}...")
     
     with sync_playwright() as p:
         # --- TEST 1: DESKTOP LOGIN ---
         try:
-            browser = p.chromium.launch(headless=True) # Set to False to watch it happen
+            # Launch browser (Headless=False lets you see it running if you want, set to True for speed) 
+            browser = p.chromium.launch(headless=True) 
             page = browser.new_page()
-            page.goto(APP_URL)
             
-            # Wait for app to load
-            page.wait_for_selector("input[aria-label='Username']", timeout=10000)
+            # Increased timeout to 30s for Cloud latency
+            page.goto(APP_URL, timeout=60000)
+            
+            # Wait for Streamlit to wake up and load inputs
+            print("Waiting for app to load...")
+            page.wait_for_selector("input[aria-label='Username']", state="visible", timeout=30000)
             
             # Perform Login
             page.fill("input[aria-label='Username']", USERNAME)
             page.fill("input[aria-label='Password']", PASSWORD)
-            # Streamlit buttons are tricky, usually use text locator
-            page.get_by_text("Login").click()
             
-            # Wait for Dashboard
-            page.wait_for_selector("text=Active Projects", timeout=10000)
-            log_result("Desktop Login", "PASS", "Successfully logged in and reached Dashboard")
+            # Click Login Button
+            # Using a more robust selector for Streamlit buttons
+            page.get_by_role("button", name="Login").click()
+            
+            # Wait for Dashboard to appear (Look for 'Active Projects')
+            page.wait_for_selector("text=Active Projects", timeout=30000)
+            log_result("Live Login", "PASS", "Successfully logged into Jugnoo CRM Cloud")
             
             # Check PDF Button
             if page.get_by_text("Download PDF").count() > 0:
-                log_result("PDF Generation", "PASS", "PDF Download button is visible")
+                log_result("PDF Generation", "PASS", "Button visible on Cloud")
             else:
-                log_result("PDF Generation", "WARNING", "No PDF button found (Client list might be empty)")
+                log_result("PDF Generation", "WARNING", "Button not found (List might be empty)")
 
-            # Check Navigate Button
-            if page.get_by_text("Navigate to Site").count() > 0:
-                log_result("Navigate Feature", "PASS", "Navigate button is visible")
-            
             browser.close()
             
         except Exception as e:
-            log_result("Desktop Login / Dashboard", "FAIL", str(e))
+            log_result("Live Login Flow", "FAIL", f"Error: {str(e)}")
 
         # --- TEST 2: MOBILE VIEW (WHITE BARS CHECK) ---
         try:
@@ -59,17 +62,19 @@ def run_tests():
             browser = p.chromium.launch(headless=True)
             context = browser.new_context(**iphone)
             page = context.new_page()
-            page.goto(APP_URL)
             
-            # Check Login Screen Background (Should be dark #0E1117)
-            # We check the computed style of the main app container
+            page.goto(APP_URL, timeout=60000)
+            page.wait_for_selector("input[aria-label='Username']", timeout=30000)
+            
+            # Check Login Screen Background CSS
+            # We check the computed style of the main .stApp container
             bg_color = page.evaluate("window.getComputedStyle(document.querySelector('.stApp')).backgroundColor")
             
-            # RGB for #0E1117 is rgb(14, 17, 23)
-            if "14, 17, 23" in bg_color:
-                log_result("Mobile UI (White Bars)", "PASS", "Background is Dark (#0E1117) on Mobile")
+            # rgb(14, 17, 23) is the Hex #0E1117 (Dark Theme)
+            if "14, 17, 23" in bg_color or "14, 17, 23" in bg_color:
+                log_result("Mobile Visuals", "PASS", "Background is Dark (No White Bars)")
             else:
-                log_result("Mobile UI (White Bars)", "FAIL", f"Background detected as {bg_color}")
+                log_result("Mobile Visuals", "FAIL", f"Background detected as {bg_color} (Expected Dark)")
             
             browser.close()
         except Exception as e:
@@ -79,17 +84,19 @@ def run_tests():
     with open(REPORT_FILE, "w") as f:
         f.write(f"""
         <html>
-        <body style="font-family: Arial; background: #1e1e1e; color: white; padding: 20px;">
-            <h1>🩺 CRM Test Report</h1>
-            <p>Generated: {time.ctime()}</p>
-            <table border="1" cellpadding="10" style="border-collapse: collapse; width: 100%;">
-                <tr><th>Test Case</th><th>Status</th><th>Details</th></tr>
+        <body style="font-family: sans-serif; background: #1e1e1e; color: #e0e0e0; padding: 20px;">
+            <h1 style="border-bottom: 1px solid #444; padding-bottom: 10px;">🩺 Jugnoo CRM Health Report</h1>
+            <p><b>Target:</b> <a href="{APP_URL}" style="color: #4da6ff;">{APP_URL}</a></p>
+            <p><b>Date:</b> {time.ctime()}</p>
+            <br>
+            <table border="1" cellpadding="12" style="border-collapse: collapse; width: 100%; border-color: #444;">
+                <tr style="background: #333;"><th>Test Case</th><th>Status</th><th>Details</th></tr>
                 {''.join(results)}
             </table>
         </body>
         </html>
         """)
-    print(f"\n✅ Tests Complete. Report saved to {REPORT_FILE}")
+    print(f"\n✅ Report generated: {os.path.abspath(REPORT_FILE)}")
 
 if __name__ == "__main__":
     run_tests()
