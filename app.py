@@ -192,27 +192,35 @@ with tab1:
             
             with c1:
                 st.write("**Edit Details**")
-                # GPS BUTTON
+                
+                # --- MANUAL GPS LOGIC (DASHBOARD) ---
+                st.write("📍 Location Tools")
+                # 1. Unique component key to prevent conflicts
                 gps_dash = get_geolocation(component_key=f"gps_dash_{client['id']}")
-                last_gps_key = f"last_gps_dash_{client['id']}"
-                loc_input_key = f"loc_in_dash_{client['id']}"
-
-                if gps_dash and gps_dash != st.session_state.get(last_gps_key):
-                    st.session_state[last_gps_key] = gps_dash
+                
+                # 2. Show result BUT DO NOT TOUCH INPUT FIELD automatically
+                if gps_dash:
                     lat = gps_dash['coords']['latitude']
                     lng = gps_dash['coords']['longitude']
-                    st.session_state[loc_input_key] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
-                    st.toast("📍 Location Updated!")
-                    st.rerun()
+                    st.caption(f"Detected: {lat:.4f}, {lng:.4f}")
+                    
+                    # 3. User must click this to apply changes
+                    if st.button("⬇️ Paste to Maps Link", key=f"paste_{client['id']}"):
+                        new_link = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
+                        st.session_state[f"loc_in_{client['id']}"] = new_link
+                        st.rerun()
 
                 with st.form("edit_details"):
                     nn = st.text_input("Name", value=client['name'])
                     np = st.text_input("Phone", value=client.get('phone', ''))
                     na = st.text_area("Address", value=client.get('address', ''))
                     
-                    if loc_input_key not in st.session_state:
-                        st.session_state[loc_input_key] = client.get('location', '')
-                    nl = st.text_input("Maps Link", key=loc_input_key)
+                    # 4. Input reads from Session State if button clicked, else DB
+                    loc_key = f"loc_in_{client['id']}"
+                    if loc_key not in st.session_state:
+                         st.session_state[loc_key] = client.get('location', '')
+                    
+                    nl = st.text_input("Maps Link", key=loc_key)
                     
                     if st.form_submit_button("💾 Save Changes"):
                         res = run_query(supabase.table("clients").update({
@@ -220,8 +228,11 @@ with tab1:
                         }).eq("id", client['id']))
                         if res and res.data:
                             st.success("Updated!")
+                            # Clear key to prevent sticking
+                            del st.session_state[loc_key]
                             time.sleep(0.5)
                             st.rerun()
+                            
                 if client.get('location'):
                     st.link_button("🚀 Navigate to Site", client['location'])
 
@@ -305,16 +316,17 @@ with tab1:
 with tab2:
     st.subheader("Add New Client")
     
-    # STRICT GPS LOGIC for New Client
-    gps_new = get_geolocation(component_key="gps_new")
-    # Only update if gps_new exists AND is different from what we last processed
-    if gps_new and gps_new != st.session_state.get('last_gps_new'):
-        st.session_state['last_gps_new'] = gps_new
+    # --- MANUAL GPS LOGIC (NEW CLIENT) ---
+    st.info("To add location: Wait for GPS scan -> Click 'Paste'")
+    gps_new = get_geolocation(component_key="gps_new_client")
+    
+    if gps_new:
         lat = gps_new['coords']['latitude']
         lng = gps_new['coords']['longitude']
-        st.session_state['nc_loc'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
-        st.toast("📍 Captured!")
-        st.rerun()
+        st.caption(f"Signal Found: {lat:.4f}, {lng:.4f}")
+        if st.button("⬇️ Paste to Form", key="paste_new"):
+            st.session_state['new_client_loc'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
+            st.rerun()
 
     with st.form("new_client"):
         c1, c2 = st.columns(2)
@@ -322,9 +334,9 @@ with tab2:
         ph = c2.text_input("Phone")
         ad = st.text_area("Address")
         
-        # Key binding ensures GPS update works
-        if 'nc_loc' not in st.session_state: st.session_state['nc_loc'] = ""
-        lo = st.text_input("Google Maps Link", key="nc_loc")
+        # Load from session if pasted, else empty
+        val_loc = st.session_state.get('new_client_loc', "")
+        lo = st.text_input("Google Maps Link", value=val_loc)
         
         if st.form_submit_button("Create Client", type="primary"):
             res = run_query(supabase.table("clients").insert({
@@ -333,9 +345,7 @@ with tab2:
             }))
             if res and res.data:
                 st.success(f"Client {nm} Added!")
-                # CRASH FIX: Safely delete keys
-                for k in ['nc_loc', 'last_gps_new']:
-                    if k in st.session_state: del st.session_state[k]
+                if 'new_client_loc' in st.session_state: del st.session_state['new_client_loc']
                 time.sleep(1)
                 st.rerun()
             else:
@@ -443,17 +453,30 @@ with tab4:
             
     st.divider()
     st.subheader("Inventory (Editable)")
-    # RESTORED EDITABLE INVENTORY
+    
+    # 1. Add New Item
+    with st.form("inv_add"):
+        c1, c2 = st.columns([2, 1])
+        new_item = c1.text_input("Item Name")
+        rate = c2.number_input("Rate", min_value=0.0)
+        if st.form_submit_button("Add Item"):
+            if run_query(supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate})):
+                st.success("Added")
+                st.rerun()
+    
+    # 2. Edit Existing Items
     inv_resp = run_query(supabase.table("inventory").select("*").order("item_name"))
     if inv_resp and inv_resp.data:
         inv_df = pd.DataFrame(inv_resp.data)
-        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_edit")
+        # Data Editor enabled
+        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit")
         
         if st.button("💾 Save Inventory Changes"):
             recs = edited_inv.to_dict(orient="records")
             errors = 0
             for row in recs:
                 if row.get('item_name'):
+                   # Upsert updates existing IDs or inserts new ones
                    res = run_query(supabase.table("inventory").upsert(row))
                    if not res: errors += 1
             
@@ -462,7 +485,7 @@ with tab4:
                 time.sleep(0.5)
                 st.rerun()
             else:
-                st.warning(f"Some items failed to save. Check database.")
+                st.warning("Some items failed to save.")
     
     st.divider()
     with st.form("pwd_chg"):
