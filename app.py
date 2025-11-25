@@ -15,13 +15,10 @@ st.set_page_config(page_title="Jugnoo CRM", page_icon="🏗️", layout="wide")
 
 st.markdown("""
     <style>
-    /* Force Dark Theme & Remove White Bars */
     .stApp { background-color: #0E1117 !important; }
     header[data-testid="stHeader"] { background-color: #0E1117 !important; }
     #MainMenu { visibility: hidden; }
     footer { visibility: hidden; }
-    
-    /* Dark Metrics */
     [data-testid="stMetric"] {
         background-color: #262730;
         border: 1px solid #464b5f;
@@ -63,14 +60,11 @@ def login_section():
     st.title("🔒 Jugnoo CRM")
     time.sleep(0.1)
     cookie_user = cookie_manager.get(cookie="jugnoo_user")
-    
     if cookie_user:
         st.session_state.logged_in = True
         st.session_state.username = cookie_user
         return 
-
-    if st.session_state.get('logged_in'):
-        return
+    if st.session_state.get('logged_in'): return
 
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
@@ -85,7 +79,6 @@ def login_section():
                     expires = datetime.now() + timedelta(days=7)
                     cookie_manager.set("jugnoo_user", user, expires_at=expires)
                     st.success("Success!")
-                    time.sleep(0.5)
                     st.rerun()
                 else:
                     st.error("Invalid Credentials")
@@ -94,7 +87,7 @@ def login_section():
 login_section()
 
 # ---------------------------
-# 3. HELPERS
+# 3. HELPER FUNCTIONS
 # ---------------------------
 def run_query(query_func):
     try:
@@ -104,7 +97,6 @@ def run_query(query_func):
         return None
 
 def get_settings():
-    """Fetches Global Settings (ID=1). Default are whole numbers now."""
     defaults = {"part_margin": 15.0, "labor_margin": 20.0, "extra_margin": 5.0, "daily_labor_cost": 1000.0}
     try:
         response = run_query(supabase.table("settings").select("*").eq("id", 1))
@@ -137,8 +129,7 @@ def create_pdf(client_name, items, labor_days, labor_total, grand_total):
         pdf.cell(60, 10, f"{item['Total Price']:.2f}", 1)
         pdf.ln()
     pdf.ln(5)
-    # Labor Total here INCLUDES the hidden rounding profit
-    pdf.cell(130, 10, f"Labor / Installation ({labor_days} Days)", 1)
+    pdf.cell(130, 10, f"Labor ({labor_days} Days)", 1)
     pdf.cell(60, 10, f"{labor_total:.2f}", 1)
     pdf.ln()
     pdf.set_font("Arial", 'B', 14)
@@ -163,6 +154,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Esti
 with tab1:
     st.subheader("Active Projects")
     response = run_query(supabase.table("clients").select("*").order("created_at", desc=True))
+    
     if response and response.data:
         df = pd.DataFrame(response.data)
         cols = [c for c in ['name', 'status', 'start_date', 'phone', 'address'] if c in df.columns]
@@ -179,20 +171,35 @@ with tab1:
             
             with c1:
                 st.write("**Edit Details**")
-                # GPS BUTTON (No Toggle)
+                
+                # --- STRICT GPS LOGIC ---
                 gps_dash = get_geolocation(component_key=f"gps_dash_{client['id']}")
-                if gps_dash:
+                # Unique ID to track last processed GPS data
+                last_gps_id = f"last_gps_{client['id']}"
+                
+                if gps_dash and gps_dash != st.session_state.get(last_gps_id):
+                    st.session_state[last_gps_id] = gps_dash
                     lat = gps_dash['coords']['latitude']
                     lng = gps_dash['coords']['longitude']
-                    st.session_state[f"loc_{client['id']}"] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
+                    # Force update the widget key
+                    st.session_state[f"dash_loc_in_{client['id']}"] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
                     st.toast("📍 Location Updated!")
+                    # Rerun to reflect changes in the text input below
+                    st.rerun()
 
                 with st.form("edit_details"):
                     nn = st.text_input("Name", value=client['name'])
                     np = st.text_input("Phone", value=client.get('phone', ''))
                     na = st.text_area("Address", value=client.get('address', ''))
-                    curr_loc = st.session_state.get(f"loc_{client['id']}", client.get('location', ''))
-                    nl = st.text_input("Maps Link", value=curr_loc)
+                    
+                    # Bind to session state key for GPS injection
+                    loc_key = f"dash_loc_in_{client['id']}"
+                    # If key not in session, seed it with DB value
+                    if loc_key not in st.session_state:
+                        st.session_state[loc_key] = client.get('location', '')
+                        
+                    nl = st.text_input("Maps Link", key=loc_key)
+                    
                     if st.form_submit_button("💾 Save Changes"):
                         res = run_query(supabase.table("clients").update({
                             "name": nn, "phone": np, "address": na, "location": nl
@@ -201,6 +208,7 @@ with tab1:
                             st.success("Updated!")
                             time.sleep(0.5)
                             st.rerun()
+                
                 if client.get('location'):
                     st.link_button("🚀 Navigate to Site", client['location'])
 
@@ -225,60 +233,77 @@ with tab1:
                         time.sleep(0.5)
                         st.rerun()
 
+            # --- DASHBOARD ESTIMATE EDITING ---
             if client.get('internal_estimate'):
                 st.divider()
-                st.subheader("📄 Estimate Overview")
+                st.subheader("📄 Manage Estimate")
                 est_data = client['internal_estimate']
+                
                 s_items = est_data.get('items', []) if isinstance(est_data, dict) else (est_data if isinstance(est_data, list) else [])
                 s_days = est_data.get('days', 1.0) if isinstance(est_data, dict) else 1.0
+                s_margins = est_data.get('margins') if isinstance(est_data, dict) else None
                 
                 if s_items:
                     idf = pd.DataFrame(s_items)
-                    if "Total Price" not in idf.columns and "Total (Internal)" in idf.columns: idf["Total Price"] = idf["Total (Internal)"]
+                    if "Total Price" not in idf.columns: idf["Total Price"] = 0.0
                     
-                    if "Total Price" in idf.columns:
-                        st.dataframe(idf, use_container_width=True)
-                        gs = get_settings()
-                        
-                        # ROUNDING LOGIC
-                        mat = idf['Total Price'].sum()
-                        raw_lab = float(s_days) * float(gs.get('daily_labor_cost', 1000))
-                        raw_grand = mat + raw_lab
-                        
-                        # Round UP to nearest 100
-                        rounded_grand = math.ceil(raw_grand / 100) * 100
-                        rounding_delta = rounded_grand - raw_grand
-                        
-                        # Hide delta in Labor
-                        displayed_labor = raw_lab + rounding_delta
-                        
-                        m1, m2, m3 = st.columns(3)
-                        m1.metric("Material", f"₹{mat:,.0f}")
-                        m2.metric("Labor (Adjusted)", f"₹{displayed_labor:,.0f}", help=f"Includes Rounding (+₹{rounding_delta:.0f})")
-                        m3.metric("Grand Total", f"₹{rounded_grand:,.0f}")
-                        
-                        pdf_bytes = create_pdf(client['name'], s_items, s_days, displayed_labor, rounded_grand)
-                        st.download_button("📄 Download PDF", pdf_bytes, f"Est_{client['name']}.pdf", "application/pdf", key=f"pdf_dash_{client['id']}")
+                    # EDITABLE TABLE restored
+                    edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}")
+                    
+                    gs = get_settings()
+                    mat = edited_est['Total Price'].sum()
+                    lab_raw = float(s_days) * float(gs.get('daily_labor_cost', 1000))
+                    raw_grand = mat + lab_raw
+                    
+                    # Rounding
+                    rounded_grand = math.ceil(raw_grand / 100) * 100
+                    delta = rounded_grand - raw_grand
+                    disp_lab = lab_raw + delta
+                    
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Material", f"₹{mat:,.0f}")
+                    m2.metric("Labor", f"₹{disp_lab:,.0f}", help=f"Includes Rounding: +₹{delta:.0f}")
+                    m3.metric("Grand Total", f"₹{rounded_grand:,.0f}")
+                    
+                    c_save, c_pdf = st.columns(2)
+                    if c_save.button("💾 Save Estimate Changes", key=f"sv_{client['id']}"):
+                        new_json = {
+                            "items": edited_est.to_dict(orient="records"),
+                            "days": s_days,
+                            "margins": s_margins
+                        }
+                        run_query(supabase.table("clients").update({"internal_estimate": new_json}).eq("id", client['id']))
+                        st.toast("Estimate Updated!", icon="✅")
+                    
+                    pdf_bytes = create_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, disp_lab, rounded_grand)
+                    c_pdf.download_button("📄 Download PDF", pdf_bytes, f"Est_{client['name']}.pdf", "application/pdf", key=f"pdf_{client['id']}")
                 else:
-                    st.warning("Empty estimate.")
+                    st.warning("Estimate Empty")
 
 # --- TAB 2: NEW CLIENT ---
 with tab2:
     st.subheader("Add New Client")
-    # GPS BUTTON (No Toggle)
+    
+    # STRICT GPS LOGIC for New Client
     gps_new = get_geolocation(component_key="gps_new")
-    if gps_new:
+    # Logic: Only update if gps_new exists AND is different from what we last processed
+    if gps_new and gps_new != st.session_state.get('last_gps_new'):
+        st.session_state['last_gps_new'] = gps_new
         lat = gps_new['coords']['latitude']
         lng = gps_new['coords']['longitude']
-        st.session_state['new_loc_val'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
+        st.session_state['nc_loc'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
         st.toast("📍 Captured!")
+        st.rerun()
 
     with st.form("new_client"):
         c1, c2 = st.columns(2)
         nm = c1.text_input("Client Name")
         ph = c2.text_input("Phone")
         ad = st.text_area("Address")
-        lo = st.text_input("Google Maps Link", value=st.session_state.get('new_loc_val', ""))
+        
+        # Key binding ensures GPS update works
+        if 'nc_loc' not in st.session_state: st.session_state['nc_loc'] = ""
+        lo = st.text_input("Google Maps Link", key="nc_loc")
         
         if st.form_submit_button("Create Client", type="primary"):
             res = run_query(supabase.table("clients").insert({
@@ -287,7 +312,7 @@ with tab2:
             }))
             if res and res.data:
                 st.success(f"Client {nm} Added!")
-                if 'new_loc_val' in st.session_state: del st.session_state['new_loc_val']
+                st.session_state['nc_loc'] = "" # Clear
                 time.sleep(1)
                 st.rerun()
             else:
@@ -355,12 +380,11 @@ with tab3:
             cit = edf.to_dict(orient="records")
             mt = edf["Total Price"].sum()
             
-            # ROUNDING LOGIC (Estimator View)
             raw_lt = dys * float(gs.get('daily_labor_cost', 1000))
             raw_gt = mt + raw_lt
             rounded_gt = math.ceil(raw_gt / 100) * 100
-            r_delta = rounded_gt - raw_gt
-            disp_lt = raw_lt + r_delta
+            delta = rounded_gt - raw_gt
+            disp_lt = raw_lt + delta
             
             st.divider()
             c1, c2, c3 = st.columns(3)
@@ -399,21 +423,31 @@ with tab4:
                 st.rerun()
             
     st.divider()
-    st.subheader("Inventory")
-    with st.form("inv_new"):
-        c1, c2 = st.columns([2, 1])
-        ni = c1.text_input("Item Name")
-        nr = c2.number_input("Rate", min_value=0.0)
-        if st.form_submit_button("Add Item"):
-            res = run_query(supabase.table("inventory").insert({"item_name": ni, "base_rate": nr}))
-            if res and res.data:
-                st.success("Added")
+    st.subheader("Inventory (Editable)")
+    # RESTORED EDITABLE INVENTORY
+    inv_resp = run_query(supabase.table("inventory").select("*").order("item_name"))
+    if inv_resp and inv_resp.data:
+        inv_df = pd.DataFrame(inv_resp.data)
+        # Show Data Editor
+        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_edit")
+        
+        if st.button("💾 Save Inventory Changes"):
+            # Convert back to records
+            recs = edited_inv.to_dict(orient="records")
+            # Upsert all rows (handled by ID)
+            errors = 0
+            for row in recs:
+                # Filter out new empty rows if any
+                if row.get('item_name'):
+                   res = run_query(supabase.table("inventory").upsert(row))
+                   if not res: errors += 1
+            
+            if errors == 0:
+                st.success("Inventory Updated!")
+                time.sleep(0.5)
                 st.rerun()
             else:
-                st.error("Failed to add item.")
-    
-    inv = run_query(supabase.table("inventory").select("*").order("item_name"))
-    if inv and inv.data: st.dataframe(pd.DataFrame(inv.data), use_container_width=True)
+                st.warning(f"Some items failed to save. Check database.")
     
     st.divider()
     with st.form("pwd_chg"):
