@@ -13,7 +13,6 @@ results = []
 def log_result(test_name, status, message=""):
     color = "green" if status == "PASS" else "red"
     results.append(f"<tr style='color:{color}'><td>{test_name}</td><td><b>{status}</b></td><td>{message}</td></tr>")
-    # Remove emojis for Windows Console compatibility
     print(f"[{status}] {test_name}: {message}")
 
 def run_tests():
@@ -23,17 +22,20 @@ def run_tests():
     with sync_playwright() as p:
         # --- TEST 1: DESKTOP LOGIN ---
         try:
-            browser = p.chromium.launch(headless=False, slow_mo=1500) 
+            # Headless=False to verify visually
+            browser = p.chromium.launch(headless=False, slow_mo=1000) 
             page = browser.new_page()
             
-            print("Waiting for app to load (up to 60s)...")
-            page.goto(APP_URL, timeout=60000)
+            print("⏳ Waiting for app to wake up (Timeout set to 3 minutes)...")
+            # EXTREME TIMEOUT: 180,000ms = 3 Minutes
+            page.goto(APP_URL, timeout=180000)
             
-            # WAIT FOR THE EXACT XPATH YOU PROVIDED
-            print("Looking for Username field via XPath...")
-            page.locator('//*[@id="text_input_1"]').wait_for(state="visible", timeout=60000)
+            print("Looking for Username field...")
+            # EXTREME WAIT: 120s to find the input after page load
+            page.locator('//*[@id="text_input_1"]').wait_for(state="visible", timeout=120000)
             
-            # Perform Login using XPaths
+            # Perform Login using your XPaths
+            print("Entering Credentials...")
             page.locator('//*[@id="text_input_1"]').fill(USERNAME)
             page.locator('//*[@id="text_input_2"]').fill(PASSWORD)
             
@@ -41,8 +43,8 @@ def run_tests():
             page.get_by_role("button", name="Sign In").click()
             
             # Wait for Dashboard
-            print("Waiting for Dashboard...")
-            page.get_by_text("Active Projects").wait_for(timeout=30000)
+            print("Waiting for Dashboard to render...")
+            page.get_by_text("Active Projects").wait_for(timeout=60000)
             
             log_result("Live Login", "PASS", "Successfully logged into Jugnoo CRM")
             
@@ -59,10 +61,10 @@ def run_tests():
             context = browser.new_context(**iphone)
             page = context.new_page()
             
-            page.goto(APP_URL, timeout=60000)
+            page.goto(APP_URL, timeout=180000)
             
-            # Wait for content using your XPath
-            page.locator('//*[@id="text_input_1"]').wait_for(timeout=60000)
+            # Wait for content using XPath
+            page.locator('//*[@id="text_input_1"]').wait_for(timeout=120000)
             
             # Check Background Color
             bg_color = page.evaluate("window.getComputedStyle(document.querySelector('.stApp')).backgroundColor")
