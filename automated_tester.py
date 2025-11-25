@@ -60,8 +60,10 @@ def run_tests():
             # Switch Tab
             iframe.get_by_role("tab", name="Settings").click()
             
+            # Wait for a unique element on the Settings tab to be visible
+            iframe.get_by_label("Daily Labor Charge (₹)").wait_for(state="visible", timeout=30000)
+            
             # Verify Sliders Exist
-            iframe.locator("div[data-testid='stSlider']").first.wait_for(state="visible", timeout=30000)
             if iframe.locator("div[data-testid='stSlider']").count() >= 3:
                 log_result("Settings UI", "PASS", "Profit Margin Sliders detected")
             else:
