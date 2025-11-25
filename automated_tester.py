@@ -39,26 +39,27 @@ def run_tests():
             except:
                 print("... app is already awake.")
 
-            # 2. Wait for Login Inputs
-            print("🔍 Looking for Login Form using input types...")
-            username_input = page.locator('input[type="text"]')
-            password_input = page.locator('input[type="password"]')
+            # 2. Locate the Streamlit iframe
+            print("🔍 Looking for Streamlit iframe...")
+            iframe_locator = page.locator('iframe[title="streamlitApp"]')
+            iframe_locator.wait_for(timeout=120000)
+            iframe = iframe_locator.frame_locator()
             
-            username_input.wait_for(timeout=120000)
-            password_input.wait_for(timeout=120000)
+            # 3. Wait for and fill inputs within the iframe
+            print("🔍 Looking for Login Form within iframe...")
+            iframe.get_by_label("Username").wait_for(timeout=120000)
             
-            # 3. Fill Inputs
             print("✍️ Filling Credentials...")
-            username_input.fill(USERNAME)
-            password_input.fill(PASSWORD)
+            iframe.get_by_label("Username").fill(USERNAME)
+            iframe.get_by_label("Password").fill(PASSWORD)
             
-            # 4. Click Login
+            # 4. Click Login within the iframe
             print("🖱️ Clicking Login...")
-            page.get_by_role("button", name="Login").click()
+            iframe.get_by_role("button", name="Login").click()
             
-            # 5. Validate Dashboard
+            # 5. Validate Dashboard within the iframe
             print("⏳ Waiting for Dashboard...")
-            page.get_by_text("Active Projects").wait_for(timeout=60000)
+            iframe.get_by_text("Active Projects").wait_for(timeout=60000)
             log_result("Login Flow", "PASS", "Logged in and saw 'Active Projects'")
 
             page.close()
@@ -67,6 +68,40 @@ def run_tests():
             print(f"❌ Error: {e}")
             log_result("Login Flow", "FAIL", str(e))
             try: page.screenshot(path="error_login.png"); print("📸 Screenshot saved to error_login.png")
+            except: pass
+
+        # --- TEST 2: MOBILE VISUALS ---
+        try:
+            print("\n📱 Testing Mobile View...")
+            iphone = p.devices['iPhone 12']
+            context = browser.new_context(**iphone)
+            page = context.new_page()
+            
+            print("... loading app on mobile (3 min timeout)...")
+            page.goto(APP_URL, timeout=180000)
+            
+            print("... looking for iframe on mobile...")
+            iframe_locator = page.locator('iframe[title="streamlitApp"]')
+            iframe_locator.wait_for(timeout=120000)
+            iframe = iframe_locator.frame_locator()
+
+            print("... waiting for app to render (2 min timeout)...")
+            iframe.get_by_label("Username").wait_for(timeout=120000)
+            time.sleep(5) 
+            
+            # Check CSS
+            bg_color = iframe.evaluate("window.getComputedStyle(document.querySelector('.stApp')).backgroundColor")
+            # Dark mode is rgb(14, 17, 23)
+            if "14, 17, 23" in bg_color:
+                log_result("Mobile UI", "PASS", "Background is Dark #0E1117")
+            else:
+                log_result("Mobile UI", "FAIL", f"Background is {bg_color}")
+                
+            page.close()
+            
+        except Exception as e:
+            log_result("Mobile UI", "FAIL", str(e))
+            try: page.screenshot(path="error_mobile.png"); print("📸 Screenshot saved to error_mobile.png")
             except: pass
 
         browser.close()
