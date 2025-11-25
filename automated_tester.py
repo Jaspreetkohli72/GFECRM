@@ -59,13 +59,10 @@ def run_tests():
             print("Phase 2: Settings & Inventory...")
             # Switch Tab
             iframe.get_by_role("tab", name="Settings").click()
-            
-            # Wait for the tabpanel belonging to the Settings tab to be visible
-            iframe.get_by_role("tabpanel", name="⚙️ Settings").wait_for(state="visible", timeout=30000)
-            
+            time.sleep(5) # Aggressive sleep to allow tab content to render
+
             # Verify Sliders Exist
-            # Wait for at least one slider to be present before counting
-            iframe.locator("div[data-testid='stSlider']").first.wait_for(state="visible", timeout=30000)
+            # Now we can just check if they are present after the sleep
             if iframe.locator("div[data-testid='stSlider']").count() >= 3:
                 log_result("Settings UI", "PASS", "Profit Margin Sliders detected")
             else:
@@ -98,6 +95,7 @@ def run_tests():
             # ---------------------------------------------------------
             print("Phase 3: Create Client...")
             iframe.get_by_role("tab", name="New Client").click()
+            time.sleep(5) # Aggressive sleep
             iframe.get_by_label("Client Name").wait_for(state="visible", timeout=30000)
             
             # Test GPS Button
@@ -128,6 +126,7 @@ def run_tests():
             # ---------------------------------------------------------
             print("Phase 4: Estimator Engine...")
             iframe.get_by_role("tab", name="Estimator").click()
+            time.sleep(5) # Aggressive sleep
             
             # Wait for the "Select Client" label to be visible before interacting
             iframe.get_by_text("Select Client", exact=True).wait_for(timeout=30000)
@@ -169,6 +168,7 @@ def run_tests():
             # ---------------------------------------------------------
             print("Phase 5: Dashboard Verification...")
             iframe.get_by_role("tab", name="Dashboard").click()
+            time.sleep(5) # Aggressive sleep
             
             # Wait for "Select Client to Manage" to ensure Dashboard is rendered
             iframe.get_by_text("Select Client to Manage").wait_for(timeout=30000)
