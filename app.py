@@ -110,31 +110,52 @@ def get_settings():
 def create_pdf(client_name, items, labor_days, labor_total, grand_total):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, "Jugnoo - Estimate", ln=True, align='C')
-    pdf.ln(10)
-    pdf.set_font("Arial", '', 12)
-    pdf.cell(0, 10, f"Client: {client_name}", ln=True)
-    pdf.cell(0, 10, f"Date: {datetime.now().strftime('%Y-%m-%d')}", ln=True)
-    pdf.ln(5)
+    
+    # --- HEADER ---
+    pdf.set_font("Arial", 'B', 20)
+    pdf.cell(0, 10, "Jugnoo CRM", ln=True, align='L')
+    pdf.set_font("Arial", 'I', 10)
+    pdf.cell(0, 6, "Smart Automation Solutions", ln=True, align='L')
+    pdf.line(10, 28, 200, 28) # Horizontal line
+    pdf.ln(15)
+    
+    # --- CLIENT INFO ---
     pdf.set_font("Arial", 'B', 12)
-    pdf.cell(100, 10, "Item", 1)
-    pdf.cell(30, 10, "Qty", 1)
-    pdf.cell(60, 10, "Amount", 1)
-    pdf.ln()
-    pdf.set_font("Arial", '', 12)
-    for item in items:
-        pdf.cell(100, 10, str(item['Item']), 1)
-        pdf.cell(30, 10, str(item['Qty']), 1)
-        pdf.cell(60, 10, f"{item['Total Price']:.2f}", 1)
-        pdf.ln()
+    pdf.cell(0, 8, f"Estimate For: {client_name}", ln=True)
+    pdf.set_font("Arial", '', 10)
+    pdf.cell(0, 8, f"Date: {datetime.now().strftime('%d-%b-%Y')}", ln=True)
     pdf.ln(5)
-    pdf.cell(130, 10, f"Labor ({labor_days} Days)", 1)
-    pdf.cell(60, 10, f"{labor_total:.2f}", 1)
-    pdf.ln()
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(130, 10, "Grand Total", 1)
-    pdf.cell(60, 10, f"{grand_total:.2f}", 1)
+    
+    # --- TABLE HEADER ---
+    pdf.set_fill_color(240, 240, 240) # Light Gray background
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(110, 10, "Description", 1, 0, 'L', 1)
+    pdf.cell(20, 10, "Qty", 1, 0, 'C', 1)
+    pdf.cell(60, 10, "Amount (INR)", 1, 1, 'R', 1)
+    
+    # --- TABLE ROWS ---
+    pdf.set_font("Arial", '', 10)
+    for item in items:
+        pdf.cell(110, 8, str(item['Item']), 1)
+        pdf.cell(20, 8, str(item['Qty']), 1, 0, 'C')
+        # Format currency with commas
+        pdf.cell(60, 8, f"{item['Total Price']:,.2f}", 1, 1, 'R')
+        
+    # --- LABOR & TOTALS ---
+    pdf.set_font("Arial", '', 10)
+    pdf.cell(130, 8, f"Labor / Installation ({labor_days} Days)", 1, 0, 'R')
+    pdf.cell(60, 8, f"{labor_total:,.2f}", 1, 1, 'R')
+    
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(130, 10, "Grand Total", 1, 0, 'R')
+    pdf.cell(60, 10, f"Rs. {grand_total:,.2f}", 1, 1, 'R')
+    
+    # --- DISCLAIMER FOOTER ---
+    pdf.ln(20)
+    pdf.set_font("Arial", 'I', 8)
+    pdf.set_text_color(100, 100, 100) # Gray text
+    pdf.multi_cell(0, 5, "NOTE: This is an estimate only. Final rates may vary based on actual site conditions, market fluctuations, and changes in project scope. Valid for 7 days.")
+    
     return pdf.output(dest='S').encode('latin-1')
 
 # ---------------------------
