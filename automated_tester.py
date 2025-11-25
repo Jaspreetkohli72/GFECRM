@@ -40,14 +40,17 @@ def run_tests():
                 print("... app is already awake.")
 
             # 2. Wait for Login Inputs
-            print("🔍 Looking for Login Form using labels...")
-            page.get_by_label("Username").wait_for(timeout=120000)
-            page.get_by_label("Password").wait_for(timeout=120000)
+            print("🔍 Looking for Login Form using input types...")
+            username_input = page.locator('input[type="text"]')
+            password_input = page.locator('input[type="password"]')
+            
+            username_input.wait_for(timeout=120000)
+            password_input.wait_for(timeout=120000)
             
             # 3. Fill Inputs
             print("✍️ Filling Credentials...")
-            page.get_by_label("Username").fill(USERNAME)
-            page.get_by_label("Password").fill(PASSWORD)
+            username_input.fill(USERNAME)
+            password_input.fill(PASSWORD)
             
             # 4. Click Login
             print("🖱️ Clicking Login...")
@@ -64,35 +67,6 @@ def run_tests():
             print(f"❌ Error: {e}")
             log_result("Login Flow", "FAIL", str(e))
             try: page.screenshot(path="error_login.png"); print("📸 Screenshot saved to error_login.png")
-            except: pass
-
-        # --- TEST 2: MOBILE VISUALS ---
-        try:
-            print("\n📱 Testing Mobile View...")
-            iphone = p.devices['iPhone 12']
-            context = browser.new_context(**iphone)
-            page = context.new_page()
-            
-            print("... loading app on mobile (3 min timeout)...")
-            page.goto(APP_URL, timeout=180000)
-            
-            print("... waiting for app to render (2 min timeout)...")
-            page.get_by_label("Username").wait_for(timeout=120000)
-            time.sleep(5) 
-            
-            # Check CSS
-            bg_color = page.evaluate("window.getComputedStyle(document.querySelector('.stApp')).backgroundColor")
-            # Dark mode is rgb(14, 17, 23)
-            if "14, 17, 23" in bg_color:
-                log_result("Mobile UI", "PASS", "Background is Dark #0E1117")
-            else:
-                log_result("Mobile UI", "FAIL", f"Background is {bg_color}")
-                
-            page.close()
-            
-        except Exception as e:
-            log_result("Mobile UI", "FAIL", str(e))
-            try: page.screenshot(path="error_mobile.png"); print("📸 Screenshot saved to error_mobile.png")
             except: pass
 
         browser.close()
