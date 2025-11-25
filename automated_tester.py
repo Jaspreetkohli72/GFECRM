@@ -2,15 +2,11 @@ import time
 from playwright.sync_api import sync_playwright
 import os
 
-# CONFIGURATION - LIVE URL
+# CONFIGURATION
 APP_URL = "https://jugnoocrm.streamlit.app/"
 USERNAME = "Jaspreet"
 PASSWORD = "CRMJugnoo@123"
 REPORT_FILE = "test_report.html"
-
-# FIXED: Added 'xpath=' prefix so Playwright knows these aren't CSS selectors
-XPATH_USER = 'xpath=/html/body/div/div[1]/div[1]/div/div/div/section/div[1]/div/div[5]/div/div[2]/div/div/div/div/div[2]/div/div/div/input'
-XPATH_PASS = 'xpath=/html/body/div/div[1]/div[1]/div/div/div/section/div[1]/div/div[5]/div/div[2]/div/div/div/div/div[3]/div/div/div/input'
 
 results = []
 
@@ -20,72 +16,91 @@ def log_result(test_name, status, message=""):
     print(f"[{status}] {test_name}: {message}")
 
 def run_tests():
-    print(f"STARTING Tests on LIVE URL: {APP_URL}")
-    print("Browser window will open shortly...")
+    print(f"🚀 STARTING Tests on: {APP_URL}")
+    print("👀 Browser opening...")
     
     with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False, slow_mo=2000)
+        
         # --- TEST 1: DESKTOP LOGIN ---
         try:
-            browser = p.chromium.launch(headless=False, slow_mo=1000) 
             page = browser.new_page()
+            print("⏳ Loading App (Wait up to 2 mins for wake-up)...")
+            page.goto(APP_URL, timeout=120000)
             
-            print("⏳ Loading App URL (Timeout 3 mins)...")
-            page.goto(APP_URL, timeout=180000)
+            # 1. Check for "Wake Up" button common on Streamlit Cloud
+            try:
+                wake_btn = page.get_by_text("Yes, get this app back up!")
+                if wake_btn.is_visible(timeout=5000):
+                    print("💤 App is sleeping. Waking it up...")
+                    wake_btn.click()
+                    time.sleep(10) # Wait for restart
+            except:
+                pass
+
+            # 2. Wait for Login Inputs
+            print("🔍 Looking for Login Form...")
+            # We search for the generic Streamlit Input container
+            page.wait_for_selector('div[data-testid="stTextInput"]', timeout=60000)
             
-            print("⏳ Manual Wait: 15 seconds for Streamlit to initialize...")
-            time.sleep(15)
+            # 3. Fill Inputs (Index 0 is Username, Index 1 is Password)
+            inputs = page.locator('div[data-testid="stTextInput"] input')
+            count = inputs.count()
+            print(f"   Found {count} text inputs.")
             
-            print("Looking for Username field...")
-            # Wait for the specific element to exist
-            page.locator(XPATH_USER).wait_for(state="visible", timeout=120000)
-            
-            print("Entering Credentials...")
-            page.locator(XPATH_USER).fill(USERNAME)
-            page.locator(XPATH_PASS).fill(PASSWORD)
-            
-            # Click Login Button
-            # Note: We use a text search for the button as buttons often don't have stable XPaths
-            page.get_by_role("button", name="Login").click()
-            
-            # Wait for Dashboard
-            print("Waiting for Dashboard to render...")
-            page.get_by_text("Active Projects").wait_for(timeout=60000)
-            
-            log_result("Live Login", "PASS", "Successfully logged into Jugnoo CRM")
-            
-            browser.close()
-            
+            if count >= 2:
+                print("✍️ Filling Credentials...")
+                inputs.nth(0).fill(USERNAME)
+                inputs.nth(1).fill(PASSWORD)
+                
+                # 4. Click Login
+                print("🖱️ Clicking Login...")
+                # Try finding the button specifically
+                page.get_by_role("button", name="Login").click()
+                
+                # 5. Validate Dashboard
+                print("⏳ Waiting for Dashboard...")
+                # Look for a unique element in the dashboard
+                page.get_by_text("Active Projects").wait_for(timeout=30000)
+                log_result("Login Flow", "PASS", "Logged in and saw 'Active Projects'")
+            else:
+                log_result("Login Flow", "FAIL", f"Found {count} inputs, expected 2.")
+                page.screenshot(path="error_login.png")
+
+            page.close()
+
         except Exception as e:
-            log_result("Live Login Flow", "FAIL", f"Error: {str(e)}")
+            print(f"❌ Error: {e}")
+            log_result("Login Flow", "FAIL", str(e))
+            try: page.screenshot(path="error_login.png"); print("📸 Screenshot saved to error_login.png")
+            except: pass
 
         # --- TEST 2: MOBILE VISUALS ---
         try:
-            print("Switching to iPhone Mode...")
+            print("\n📱 Testing Mobile View...")
             iphone = p.devices['iPhone 12']
-            browser = p.chromium.launch(headless=False, slow_mo=1000)
             context = browser.new_context(**iphone)
             page = context.new_page()
             
-            page.goto(APP_URL, timeout=180000)
+            page.goto(APP_URL, timeout=90000)
+            # Wait for styling to apply
+            page.wait_for_selector('.stApp', timeout=60000)
+            time.sleep(2) 
             
-            print("⏳ Manual Wait: 15 seconds for Mobile View...")
-            time.sleep(15)
-            
-            # Wait for content using the Full XPath
-            page.locator(XPATH_USER).wait_for(timeout=120000)
-            
-            # Check Background Color
+            # Check CSS
             bg_color = page.evaluate("window.getComputedStyle(document.querySelector('.stApp')).backgroundColor")
-            
-            # rgb(14, 17, 23) is the Hex #0E1117 (Dark Theme)
+            # Dark mode is rgb(14, 17, 23)
             if "14, 17, 23" in bg_color:
-                log_result("Mobile Visuals", "PASS", "Background is Dark (No White Bars)")
+                log_result("Mobile UI", "PASS", "Background is Dark #0E1117")
             else:
-                log_result("Mobile Visuals", "FAIL", f"Background detected as {bg_color}")
+                log_result("Mobile UI", "FAIL", f"Background is {bg_color}")
+                
+            page.close()
             
-            browser.close()
         except Exception as e:
-            log_result("Mobile Simulation", "FAIL", str(e))
+            log_result("Mobile UI", "FAIL", str(e))
+
+        browser.close()
 
     # --- GENERATE REPORT ---
     try:
@@ -93,20 +108,17 @@ def run_tests():
             f.write(f"""
             <html>
             <body style="font-family: sans-serif; background: #1e1e1e; color: #e0e0e0; padding: 20px;">
-                <h1 style="border-bottom: 1px solid #444; padding-bottom: 10px;">Jugnoo CRM Health Report</h1>
-                <p><b>Target:</b> <a href="{APP_URL}" style="color: #4da6ff;">{APP_URL}</a></p>
-                <p><b>Date:</b> {time.ctime()}</p>
-                <br>
-                <table border="1" cellpadding="12" style="border-collapse: collapse; width: 100%; border-color: #444;">
-                    <tr style="background: #333;"><th>Test Case</th><th>Status</th><th>Details</th></tr>
+                <h1>🩺 Jugnoo CRM Report</h1>
+                <table border="1" cellpadding="10" style="border-collapse: collapse; width: 100%;">
+                    <tr style="background: #333;"><th>Test</th><th>Status</th><th>Details</th></tr>
                     {''.join(results)}
                 </table>
             </body>
             </html>
             """)
-        print(f"\nREPORT GENERATED: {os.path.abspath(REPORT_FILE)}")
-    except Exception as e:
-        print(f"Error saving report: {e}")
+        print(f"\n✅ Report generated: {os.path.abspath(REPORT_FILE)}")
+    except:
+        print("Error saving report.")
 
 if __name__ == "__main__":
     run_tests()
