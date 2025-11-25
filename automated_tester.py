@@ -8,9 +8,9 @@ USERNAME = "Jaspreet"
 PASSWORD = "CRMJugnoo@123"
 REPORT_FILE = "test_report.html"
 
-# EXACT XPATHS PROVIDED BY USER
-XPATH_USER = '/html/body/div/div[1]/div[1]/div/div/div/section/div[1]/div/div[5]/div/div[2]/div/div/div/div/div[2]/div/div/div/input'
-XPATH_PASS = '/html/body/div/div[1]/div[1]/div/div/div/section/div[1]/div/div[5]/div/div[2]/div/div/div/div/div[3]/div/div/div/input'
+# FIXED: Added 'xpath=' prefix so Playwright knows these aren't CSS selectors
+XPATH_USER = 'xpath=/html/body/div/div[1]/div[1]/div/div/div/section/div[1]/div/div[5]/div/div[2]/div/div/div/div/div[2]/div/div/div/input'
+XPATH_PASS = 'xpath=/html/body/div/div[1]/div[1]/div/div/div/section/div[1]/div/div[5]/div/div[2]/div/div/div/div/div[3]/div/div/div/input'
 
 results = []
 
@@ -35,7 +35,7 @@ def run_tests():
             print("⏳ Manual Wait: 15 seconds for Streamlit to initialize...")
             time.sleep(15)
             
-            print("Looking for Username field via Full XPath...")
+            print("Looking for Username field...")
             # Wait for the specific element to exist
             page.locator(XPATH_USER).wait_for(state="visible", timeout=120000)
             
@@ -44,6 +44,7 @@ def run_tests():
             page.locator(XPATH_PASS).fill(PASSWORD)
             
             # Click Login Button
+            # Note: We use a text search for the button as buttons often don't have stable XPaths
             page.get_by_role("button", name="Login").click()
             
             # Wait for Dashboard
