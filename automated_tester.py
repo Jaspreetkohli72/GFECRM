@@ -26,15 +26,18 @@ def run_tests():
             browser = p.chromium.launch(headless=False, slow_mo=1000) 
             page = browser.new_page()
             
-            print("⏳ Waiting for app to wake up (Timeout set to 3 minutes)...")
-            # EXTREME TIMEOUT: 180,000ms = 3 Minutes
+            print("⏳ Loading App URL (Timeout set to 3 minutes)...")
             page.goto(APP_URL, timeout=180000)
             
+            # --- MANUAL WAIT ADDED HERE ---
+            print("⏳ Manual Wait: 15 seconds for Streamlit to initialize...")
+            time.sleep(15)
+            # ------------------------------
+            
             print("Looking for Username field...")
-            # EXTREME WAIT: 120s to find the input after page load
+            # Using the specific XPaths you provided
             page.locator('//*[@id="text_input_1"]').wait_for(state="visible", timeout=120000)
             
-            # Perform Login using your XPaths
             print("Entering Credentials...")
             page.locator('//*[@id="text_input_1"]').fill(USERNAME)
             page.locator('//*[@id="text_input_2"]').fill(PASSWORD)
@@ -62,6 +65,9 @@ def run_tests():
             page = context.new_page()
             
             page.goto(APP_URL, timeout=180000)
+            
+            print("⏳ Manual Wait: 15 seconds for Mobile View...")
+            time.sleep(15)
             
             # Wait for content using XPath
             page.locator('//*[@id="text_input_1"]').wait_for(timeout=120000)
