@@ -64,6 +64,8 @@ def run_tests():
             iframe.get_by_role("tabpanel", name="⚙️ Settings").wait_for(state="visible", timeout=30000)
             
             # Verify Sliders Exist
+            # Wait for at least one slider to be present before counting
+            iframe.locator("div[data-testid='stSlider']").first.wait_for(state="visible", timeout=30000)
             if iframe.locator("div[data-testid='stSlider']").count() >= 3:
                 log_result("Settings UI", "PASS", "Profit Margin Sliders detected")
             else:
@@ -77,6 +79,9 @@ def run_tests():
             
             # AGGRESSIVE SLEEP: Wait for st.rerun() to complete and UI to stabilize
             time.sleep(5) 
+            
+            # Re-acquire iframe reference after st.rerun()
+            iframe = page.frame_locator('iframe[title="streamlitApp"]')
             
             # After adding item, wait for the app to rerun and re-render the settings page
             iframe.get_by_role("tabpanel", name="⚙️ Settings").locator("#number_input_9").wait_for(state="visible", timeout=30000)
@@ -111,6 +116,9 @@ def run_tests():
             # AGGRESSIVE SLEEP: Wait for st.rerun() to complete and UI to stabilize
             time.sleep(5)
             
+            # Re-acquire iframe reference after st.rerun()
+            iframe = page.frame_locator('iframe[title="streamlitApp"]')
+            
             # Wait for success message
             iframe.get_by_text(f"Client {client_name} Added!").wait_for()
             log_result("Client CRUD", "PASS", "Client created successfully")
@@ -123,6 +131,9 @@ def run_tests():
             
             # Wait for the "Select Client" label to be visible before interacting
             iframe.get_by_text("Select Client", exact=True).wait_for(timeout=30000)
+            
+            # Re-acquire iframe reference after tab click and wait (just in case)
+            iframe = page.frame_locator('iframe[title="streamlitApp"]')
             
             # Select Client
             print("Selecting client...")
@@ -159,6 +170,12 @@ def run_tests():
             print("Phase 5: Dashboard Verification...")
             iframe.get_by_role("tab", name="Dashboard").click()
             
+            # Wait for "Select Client to Manage" to ensure Dashboard is rendered
+            iframe.get_by_text("Select Client to Manage").wait_for(timeout=30000)
+            
+            # Re-acquire iframe reference after tab click and wait (just in case)
+            iframe = page.frame_locator('iframe[title="streamlitApp"]')
+            
             # Select the client in Dashboard
             dashboard_client_select = iframe.locator("div[data-testid='stSelectbox']").first
             dashboard_client_select.wait_for(state="visible", timeout=30000)
@@ -183,6 +200,9 @@ def run_tests():
             
             # AGGRESSIVE SLEEP: Wait for st.rerun() to complete and UI to stabilize
             time.sleep(5)
+            
+            # Re-acquire iframe reference after st.rerun()
+            iframe = page.frame_locator('iframe[title="streamlitApp"]')
             
             iframe.get_by_text("Details Updated!").wait_for()
             log_result("Client Update", "PASS", "Client details edited successfully")
