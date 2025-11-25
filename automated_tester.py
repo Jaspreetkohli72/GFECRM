@@ -60,20 +60,8 @@ def run_tests():
             # Switch Tab
             iframe.get_by_role("tab", name="Settings").click()
             
-            # Wait for a unique element on the Settings tab to be visible (with retry)
-            settings_elements_loaded = False
-            for i in range(4): # Retry every 5 seconds for 20 seconds
-                try:
-                    iframe.locator("#number_input_9").wait_for(state="visible", timeout=5000)
-                    settings_elements_loaded = True
-                    print("... Settings elements loaded!")
-                    break
-                except:
-                    print(f"... Settings elements not loaded, retrying in 5s (attempt {i+1}/4)")
-                    time.sleep(5)
-            
-            if not settings_elements_loaded:
-                raise Exception("Settings elements not found after tab switch.")
+            # Wait for the tabpanel belonging to the Settings tab to be visible
+            iframe.get_by_role("tabpanel", name="⚙️ Settings").wait_for(state="visible", timeout=30000)
             
             # Verify Sliders Exist
             if iframe.locator("div[data-testid='stSlider']").count() >= 3:
@@ -88,7 +76,7 @@ def run_tests():
             iframe.get_by_role("button", name="Add Item").click()
             
             # After adding item, wait for the app to rerun and re-render the settings page
-            iframe.locator("#number_input_9").wait_for(state="visible", timeout=30000)
+            iframe.get_by_role("tabpanel", name="⚙️ Settings").locator("#number_input_9").wait_for(state="visible", timeout=30000)
             
             # Wait for the st.dataframe within the Settings tab to be visible and stable
             iframe.get_by_role("tabpanel", name="⚙️ Settings").locator("div[data-testid='stDataFrame']").wait_for(state="visible", timeout=30000)
