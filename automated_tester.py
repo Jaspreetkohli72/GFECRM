@@ -25,24 +25,35 @@ def run_tests():
         # --- TEST 1: DESKTOP LOGIN ---
         try:
             page = browser.new_page()
-            print("⏳ Loading App (Wait up to 2 mins for wake-up)...")
-            page.goto(APP_URL, timeout=120000)
+            print("⏳ Loading App (Wait up to 3 mins for wake-up)...")
+            page.goto(APP_URL, timeout=180000)
             
             # 1. Check for "Wake Up" button common on Streamlit Cloud
             try:
                 wake_btn = page.get_by_text("Yes, get this app back up!")
-                if wake_btn.is_visible(timeout=5000):
+                if wake_btn.is_visible(timeout=10000):
                     print("💤 App is sleeping. Waking it up...")
                     wake_btn.click()
-                    time.sleep(10) # Wait for restart
+                    print("... giving app 20 seconds to restart...")
+                    time.sleep(20) # Wait for restart
             except:
-                pass
+                print("... app is already awake.")
 
-            # 2. Wait for Login Inputs
-            print("🔍 Looking for Login Form...")
-            # We search for the generic Streamlit Input container
-            page.wait_for_selector('div[data-testid="stTextInput"]', timeout=60000)
+            # 2. Wait for Login Inputs with Retry
+            print("🔍 Looking for Login Form (will retry for 2 mins)...")
+            inputs_found = False
+            for i in range(4): # Retry every 30 seconds for 2 minutes
+                try:
+                    page.wait_for_selector('div[data-testid="stTextInput"]', timeout=30000)
+                    inputs_found = True
+                    print("... login form found!")
+                    break
+                except:
+                    print(f"... login form not found, retrying in 30s (attempt {i+1}/4)")
             
+            if not inputs_found:
+                raise Exception("Login form not found after 2 minutes.")
+
             # 3. Fill Inputs (Index 0 is Username, Index 1 is Password)
             inputs = page.locator('div[data-testid="stTextInput"] input')
             count = inputs.count()
@@ -55,13 +66,11 @@ def run_tests():
                 
                 # 4. Click Login
                 print("🖱️ Clicking Login...")
-                # Try finding the button specifically
                 page.get_by_role("button", name="Login").click()
                 
                 # 5. Validate Dashboard
                 print("⏳ Waiting for Dashboard...")
-                # Look for a unique element in the dashboard
-                page.get_by_text("Active Projects").wait_for(timeout=30000)
+                page.get_by_text("Active Projects").wait_for(timeout=60000)
                 log_result("Login Flow", "PASS", "Logged in and saw 'Active Projects'")
             else:
                 log_result("Login Flow", "FAIL", f"Found {count} inputs, expected 2.")
@@ -82,10 +91,12 @@ def run_tests():
             context = browser.new_context(**iphone)
             page = context.new_page()
             
-            page.goto(APP_URL, timeout=90000)
-            # Wait for styling to apply
-            page.wait_for_selector('.stApp', timeout=60000)
-            time.sleep(2) 
+            print("... loading app on mobile (3 min timeout)...")
+            page.goto(APP_URL, timeout=180000)
+            
+            print("... waiting for app to render (2 min timeout)...")
+            page.wait_for_selector('.stApp', timeout=120000)
+            time.sleep(5) 
             
             # Check CSS
             bg_color = page.evaluate("window.getComputedStyle(document.querySelector('.stApp')).backgroundColor")
@@ -99,6 +110,8 @@ def run_tests():
             
         except Exception as e:
             log_result("Mobile UI", "FAIL", str(e))
+            try: page.screenshot(path="error_mobile.png"); print("📸 Screenshot saved to error_mobile.png")
+            except: pass
 
         browser.close()
 
