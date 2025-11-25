@@ -45,11 +45,11 @@ def run_tests():
             
             # 3. Wait for and fill inputs within the iframe
             print("🔍 Looking for Login Form within iframe...")
-            iframe.get_by_label("Username").wait_for(timeout=120000)
+            iframe.get_by_role("textbox", name="Username").wait_for(timeout=120000)
             
             print("✍️ Filling Credentials...")
-            iframe.get_by_label("Username").fill(USERNAME)
-            iframe.get_by_label("Password").fill(PASSWORD)
+            iframe.get_by_role("textbox", name="Username").fill(USERNAME)
+            iframe.get_by_role("textbox", name="Password").fill(PASSWORD)
             
             # 4. Click Login within the iframe
             print("🖱️ Clicking Login...")
@@ -82,7 +82,7 @@ def run_tests():
             iframe = page.frame_locator('iframe[title="streamlitApp"]')
 
             print("... waiting for app to render (2 min timeout)...")
-            iframe.get_by_label("Username").wait_for(timeout=120000)
+            iframe.get_by_role("textbox", name="Username").wait_for(timeout=120000)
             time.sleep(5) 
             
             # Check CSS
