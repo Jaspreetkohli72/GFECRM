@@ -39,42 +39,24 @@ def run_tests():
             except:
                 print("... app is already awake.")
 
-            # 2. Wait for Login Inputs with Retry
-            print("🔍 Looking for Login Form (will retry for 2 mins)...")
-            inputs_found = False
-            for i in range(4): # Retry every 30 seconds for 2 minutes
-                try:
-                    page.wait_for_selector('div[data-testid="stTextInput"]', timeout=30000)
-                    inputs_found = True
-                    print("... login form found!")
-                    break
-                except:
-                    print(f"... login form not found, retrying in 30s (attempt {i+1}/4)")
+            # 2. Wait for Login Inputs
+            print("🔍 Looking for Login Form using labels...")
+            page.get_by_label("Username").wait_for(timeout=120000)
+            page.get_by_label("Password").wait_for(timeout=120000)
             
-            if not inputs_found:
-                raise Exception("Login form not found after 2 minutes.")
-
-            # 3. Fill Inputs (Index 0 is Username, Index 1 is Password)
-            inputs = page.locator('div[data-testid="stTextInput"] input')
-            count = inputs.count()
-            print(f"   Found {count} text inputs.")
+            # 3. Fill Inputs
+            print("✍️ Filling Credentials...")
+            page.get_by_label("Username").fill(USERNAME)
+            page.get_by_label("Password").fill(PASSWORD)
             
-            if count >= 2:
-                print("✍️ Filling Credentials...")
-                inputs.nth(0).fill(USERNAME)
-                inputs.nth(1).fill(PASSWORD)
-                
-                # 4. Click Login
-                print("🖱️ Clicking Login...")
-                page.get_by_role("button", name="Login").click()
-                
-                # 5. Validate Dashboard
-                print("⏳ Waiting for Dashboard...")
-                page.get_by_text("Active Projects").wait_for(timeout=60000)
-                log_result("Login Flow", "PASS", "Logged in and saw 'Active Projects'")
-            else:
-                log_result("Login Flow", "FAIL", f"Found {count} inputs, expected 2.")
-                page.screenshot(path="error_login.png")
+            # 4. Click Login
+            print("🖱️ Clicking Login...")
+            page.get_by_role("button", name="Login").click()
+            
+            # 5. Validate Dashboard
+            print("⏳ Waiting for Dashboard...")
+            page.get_by_text("Active Projects").wait_for(timeout=60000)
+            log_result("Login Flow", "PASS", "Logged in and saw 'Active Projects'")
 
             page.close()
 
@@ -95,7 +77,7 @@ def run_tests():
             page.goto(APP_URL, timeout=180000)
             
             print("... waiting for app to render (2 min timeout)...")
-            page.wait_for_selector('.stApp', timeout=120000)
+            page.get_by_label("Username").wait_for(timeout=120000)
             time.sleep(5) 
             
             # Check CSS
