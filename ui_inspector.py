@@ -23,7 +23,7 @@ def analyze_page(page, file_handle, section_name, iframe_context):
             id_val = el.get_attribute("id") or "No ID"
             
             # Recommend the best selector
-            best_selector = f'iframe_context.get_by_label("{lbl}")' if lbl != "No Label" else f'iframe_context.locator("#{id_val}")'
+            best_selector = f'iframe.get_by_label("{lbl}")' if lbl != "No Label" else f'iframe.locator("#{id_val}")'
             
             file_handle.write(f"{i+1}. Label: '{lbl}' | ID: '{id_val}' | Current Value: '{val}'\n")
             file_handle.write(f"   Recommended Code: {best_selector}\n")
@@ -41,7 +41,7 @@ def analyze_page(page, file_handle, section_name, iframe_context):
             kind = el.get_attribute("kind") or "generic"
             
             # Recommend selector
-            best_selector = f'iframe_context.get_by_role("button", name="{text}")'
+            best_selector = f'iframe.get_by_role("button", name="{text}")'
             
             file_handle.write(f"{i+1}. Text: '{text}' | Kind: {kind}\n")
             file_handle.write(f"   Recommended Code: {best_selector}\n")
@@ -58,7 +58,7 @@ def analyze_page(page, file_handle, section_name, iframe_context):
             except:
                 label = "Unknown Label"
                 
-            best_selector = f'iframe_context.locator("div[data-testid=\'stSelectbox\']").nth({i}) # For \'{label}\''
+            best_selector = f'iframe.locator("div[data-testid=\'stSelectbox\']").nth({i}) # For \'{label}\''
             
             file_handle.write(f"{i+1}. Label: '{label}'\n")
             file_handle.write(f"   Recommended Code: {best_selector}\n")
@@ -106,13 +106,17 @@ def run_inspector():
                 iframe.get_by_text("Active Projects").wait_for(timeout=60000)
                 time.sleep(5) # Wait for dashboard widgets to render
                 
-                analyze_page(page, f, "DASHBOARD (TAB 1)", iframe)
-                
-                # Click Tab 2
-                print("Inspecting Tab 2 (New Client)...")
-                iframe.get_by_role("tab", name="New Client").click()
-                time.sleep(3)
-                analyze_page(page, f, "NEW CLIENT (TAB 2)", iframe)
+                # Scan all tabs
+                tabs = ["Dashboard", "New Client", "Estimator", "Settings"]
+                for tab_name in tabs:
+                    print(f"Inspecting Tab: {tab_name}...")
+                    try:
+                        iframe.get_by_role("tab", name=tab_name).click()
+                        time.sleep(3) # Wait for tab to render
+                        analyze_page(page, f, f"TAB: {tab_name.upper()}", iframe)
+                    except Exception as e:
+                        f.write(f"\n\n[ERROR] Could not inspect tab '{tab_name}': {e}")
+                        print(f"Error inspecting tab {tab_name}: {e}")
                 
             except Exception as e:
                 f.write(f"\n\n[ERROR] Could not proceed past login: {e}")
