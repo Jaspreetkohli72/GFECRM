@@ -12,39 +12,36 @@ results = []
 
 def log_result(test_name, status, message=""):
     color = "green" if status == "PASS" else "red"
-    # HTML Table Row
     results.append(f"<tr style='color:{color}'><td>{test_name}</td><td><b>{status}</b></td><td>{message}</td></tr>")
-    # Console Print (Emojis removed for Windows compatibility)
+    # Remove emojis for Windows Console compatibility
     print(f"[{status}] {test_name}: {message}")
 
 def run_tests():
-    print(f"STARTING Tests on LIVE URL: {APP_URL}...")
+    print(f"STARTING Tests on LIVE URL: {APP_URL}")
     print("Browser window will open shortly...")
     
     with sync_playwright() as p:
         # --- TEST 1: DESKTOP LOGIN ---
         try:
-            # Headless=False makes the browser visible
             browser = p.chromium.launch(headless=False, slow_mo=1500) 
             page = browser.new_page()
             
             print("Waiting for app to load (up to 60s)...")
             page.goto(APP_URL, timeout=60000)
             
-            # ROBUST SELECTOR: Look for the label text "Username" instead of internal IDs
-            print("Looking for login fields...")
-            page.get_by_label("Username").wait_for(state="visible", timeout=60000)
+            # WAIT FOR THE EXACT XPATH YOU PROVIDED
+            print("Looking for Username field via XPath...")
+            page.locator('//*[@id="text_input_1"]').wait_for(state="visible", timeout=60000)
             
-            # Perform Login
-            page.get_by_label("Username").fill(USERNAME)
-            page.get_by_label("Password").fill(PASSWORD)
+            # Perform Login using XPaths
+            page.locator('//*[@id="text_input_1"]').fill(USERNAME)
+            page.locator('//*[@id="text_input_2"]').fill(PASSWORD)
             
             # Click Login Button
             page.get_by_role("button", name="Sign In").click()
             
             # Wait for Dashboard
             print("Waiting for Dashboard...")
-            # We look for 'Active Projects' or the 'Logout' button to confirm success
             page.get_by_text("Active Projects").wait_for(timeout=30000)
             
             log_result("Live Login", "PASS", "Successfully logged into Jugnoo CRM")
@@ -63,8 +60,9 @@ def run_tests():
             page = context.new_page()
             
             page.goto(APP_URL, timeout=60000)
-            # Wait for content to ensure styles are loaded
-            page.get_by_label("Username").wait_for(timeout=60000)
+            
+            # Wait for content using your XPath
+            page.locator('//*[@id="text_input_1"]').wait_for(timeout=60000)
             
             # Check Background Color
             bg_color = page.evaluate("window.getComputedStyle(document.querySelector('.stApp')).backgroundColor")
@@ -80,7 +78,6 @@ def run_tests():
             log_result("Mobile Simulation", "FAIL", str(e))
 
     # --- GENERATE REPORT ---
-    # encoding="utf-8" is CRITICAL for Windows to save emojis safely
     try:
         with open(REPORT_FILE, "w", encoding="utf-8") as f:
             f.write(f"""
