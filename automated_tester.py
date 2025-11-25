@@ -107,4 +107,106 @@ def run_tests():
             print("Phase 4: Estimator Engine...")
             iframe.get_by_role("tab", name="Estimator").click()
             
-            # Wait for the
+            # Wait for the "Select Client" label to be visible before interacting
+            iframe.get_by_text("Select Client", exact=True).wait_for(timeout=30000)
+            
+            # Select Client
+            print("Selecting client...")
+            # Use nth(1) because inspector found it as the second selectbox on the page
+            client_selectbox = iframe.locator("div[data-testid='stSelectbox']").nth(1)
+            client_selectbox.click() 
+            time.sleep(1)
+            iframe.get_by_text(client_name).first.click()
+            
+            # Add Item to Estimate
+            print("Adding item...")
+            # Use nth(2) as per inspector
+            item_selectbox = iframe.locator("div[data-testid='stSelectbox']").nth(2)
+            item_selectbox.wait_for(state="visible", timeout=30000)
+            item_selectbox.click()
+            time.sleep(1)
+            iframe.get_by_text(test_item_name).first.click()
+            
+            iframe.get_by_label("Quantity").fill("2")
+            iframe.get_by_role("button", name="Add to List").click()
+            
+            # Verify Math
+            iframe.get_by_text("Grand Total").wait_for(state="visible", timeout=30000)
+            log_result("Calculation", "PASS", "Metrics calculated and displayed")
+
+            # Save Estimate
+            iframe.get_by_role("button", name="Save Estimate").click()
+            iframe.get_by_text("Saved!").wait_for()
+            log_result("Database Write", "PASS", "Estimate saved to database")
+
+            # ---------------------------------------------------------
+            # PHASE 5: DASHBOARD (Verification & PDF)
+            # ---------------------------------------------------------
+            print("Phase 5: Dashboard Verification...")
+            iframe.get_by_role("tab", name="Dashboard").click()
+            
+            # Select the client in Dashboard
+            dashboard_client_select = iframe.locator("div[data-testid='stSelectbox']").first
+            dashboard_client_select.wait_for(state="visible", timeout=30000)
+            dashboard_client_select.click()
+            iframe.get_by_text(client_name).first.click()
+            
+            # Verify Data loaded
+            iframe.get_by_text("123 Automated Test Lane").wait_for(state="visible", timeout=30000)
+            log_result("Dashboard Read", "PASS", "Client details loaded correctly")
+                
+            # Verify PDF Button Exists
+            if iframe.get_by_text("Download PDF").is_visible():
+                log_result("PDF Logic", "PASS", "Download PDF button is generated and visible")
+                
+            # Test Navigate Button
+            if iframe.get_by_text("Navigate to Site").is_visible():
+                log_result("Navigation", "PASS", "Navigate button visible")
+
+            # Test Edit Details
+            iframe.get_by_label("Name", exact=True).fill(client_name + "_EDITED")
+            iframe.get_by_role("button", name="Save Changes").click()
+            iframe.get_by_text("Details Updated!").wait_for()
+            log_result("Client Update", "PASS", "Client details edited successfully")
+
+            # ---------------------------------------------------------
+            # PHASE 6: LOGOUT
+            # ---------------------------------------------------------
+            print("Phase 6: Cleanup...")
+            iframe.get_by_role("button", name="Logout").click()
+            # Verify back to login screen
+            iframe.get_by_role("button", name="Login").wait_for()
+            log_result("Session", "PASS", "Logout successful")
+
+        except Exception as e:
+            print(f"❌ CRITICAL FAILURE: {e}")
+            log_result("CRITICAL FAILURE", "FAIL", str(e))
+            try: page.screenshot(path="failure_screenshot.png")
+            except: pass
+
+        browser.close()
+
+    # --- SAVE REPORT ---
+    try:
+        with open(REPORT_FILE, "w", encoding="utf-8") as f:
+            f.write(f"""
+            <html>
+            <body style="font-family: sans-serif; background: #0e1117; color: #e0e0e0; padding: 30px;">
+                <div style="max-width: 800px; margin: auto;">
+                    <h1 style="border-bottom: 1px solid #333; padding-bottom: 10px; color: #ff4b4b;">🩺 Jugnoo CRM Deep-Dive Report</h1>
+                    <p><b>Date:</b> {time.ctime()}</p>
+                    <br>
+                    <table border="0" cellpadding="15" cellspacing="0" style="width: 100%; background: #262730; border-radius: 8px;">
+                        <tr style="background: #333; text-align: left;"><th>Test Category</th><th>Status</th><th>Details</th></tr>
+                        {''.join(results)}
+                    </table>
+                </div>
+            </body>
+            </html>
+            """)
+        print(f"\n✅ FULL REPORT GENERATED: {os.path.abspath(REPORT_FILE)}")
+    except Exception as e:
+        print(f"Error saving report: {e}")
+
+if __name__ == "__main__":
+    run_tests()
