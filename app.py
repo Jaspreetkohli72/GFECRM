@@ -704,48 +704,47 @@ with tab5:
             st.warning("Please add inventory items in the Settings tab.")
 
         if supplier_options and inventory_options:
-            with st.form("record_purchase_form"):
-                selected_supplier_name = st.selectbox("Select Supplier", list(supplier_options.keys()))
-                selected_item_name = st.selectbox("Select Item", list(inventory_options.keys()))
+            selected_supplier_name = st.selectbox("Select Supplier", list(supplier_options.keys()))
+            selected_item_name = st.selectbox("Select Item", list(inventory_options.keys()))
 
-                # Pre-fill rate with current base_rate from inventory if available
-                default_rate = inventory_options.get(selected_item_name, {}).get('base_rate', 0.0)
-                purchase_rate = st.number_input("Buying Rate", min_value=0.0, value=float(default_rate), step=0.01)
-                purchase_qty = st.number_input("Quantity", min_value=0.0, value=1.0, step=0.01)
-                update_inventory_base_rate = st.checkbox("Update Inventory Base Rate?", value=True)
+            # Pre-fill rate with current base_rate from inventory if available
+            default_rate = inventory_options.get(selected_item_name, {}).get('base_rate', 0.0)
+            purchase_rate = st.number_input("Buying Rate", min_value=0.0, value=float(default_rate), step=0.01)
+            purchase_qty = st.number_input("Quantity", min_value=0.0, value=1.0, step=0.01)
+            update_inventory_base_rate = st.checkbox("Update Inventory Base Rate?", value=True)
 
-                if st.form_submit_button("Record Purchase", type="primary"):
-                    if selected_supplier_name and selected_item_name and purchase_qty > 0:
-                        supplier_id = supplier_options[selected_supplier_name]
-                        total_cost = purchase_rate * purchase_qty
+            if st.button("✅ Record Transaction", type="primary"):
+                if selected_supplier_name and selected_item_name and purchase_qty > 0:
+                    supplier_id = supplier_options[selected_supplier_name]
+                    total_cost = purchase_rate * purchase_qty
 
-                        # Insert into purchase_log
-                        res_purchase = run_query(supabase.table("purchase_log").insert({
-                            "supplier_id": supplier_id,
-                            "item_name": selected_item_name,
-                            "qty": purchase_qty,
-                            "rate": purchase_rate,
-                            "total_cost": total_cost
-                        }))
+                    # Insert into purchase_log
+                    res_purchase = run_query(supabase.table("purchase_log").insert({
+                        "supplier_id": supplier_id,
+                        "item_name": selected_item_name,
+                        "qty": purchase_qty,
+                        "rate": purchase_rate,
+                        "total_cost": total_cost
+                    }))
 
-                        if res_purchase and res_purchase.data:
-                            if update_inventory_base_rate:
-                                # Update inventory base_rate
-                                res_inventory = run_query(supabase.table("inventory").update({"base_rate": purchase_rate}).eq("item_name", selected_item_name))
-                                if res_inventory and res_inventory.data:
-                                    st.success("Purchase Recorded & Inventory Updated!")
-                                    time.sleep(0.5)
-                                    st.rerun()
-                                else:
-                                    st.error("Purchase Recorded, but failed to update Inventory Base Rate.")
-                            else:
-                                st.success("Purchase Recorded!")
+                    if res_purchase and res_purchase.data:
+                        if update_inventory_base_rate:
+                            # Update inventory base_rate
+                            res_inventory = run_query(supabase.table("inventory").update({"base_rate": purchase_rate}).eq("item_name", selected_item_name))
+                            if res_inventory and res_inventory.data:
+                                st.success("Purchase Recorded & Inventory Updated!")
                                 time.sleep(0.5)
                                 st.rerun()
+                            else:
+                                st.error("Purchase Recorded, but failed to update Inventory Base Rate.")
                         else:
-                            st.error("Failed to record purchase.")
+                            st.success("Purchase Recorded!")
+                            time.sleep(0.5)
+                            st.rerun()
                     else:
-                        st.warning("Please fill all required fields and ensure quantity is greater than zero.")
+                        st.error("Failed to record purchase.")
+                else:
+                    st.warning("Please fill all required fields and ensure quantity is greater than zero.")
 
     st.divider()
     st.subheader("Recent History")
