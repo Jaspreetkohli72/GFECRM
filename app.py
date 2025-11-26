@@ -329,7 +329,14 @@ with tab1:
                     idf['Unit Price'] = idf.apply(lambda row: row['Total Price'] / row['Qty'] if row['Qty'] != 0 else 0, axis=1)
                     
                     edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}",
-                                                column_config={"Unit Price": None, "Total Price": st.column_config.NumberColumn(disabled=True)})
+                                                column_config={
+                                                    "Item": st.column_config.Column(width="large"),
+                                                    "Qty": st.column_config.NumberColumn(width="small"),
+                                                    "Unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "cm", "in", "ft"], width="small", required=True),
+                                                    "Base Rate": st.column_config.NumberColumn(width="small"),
+                                                    "Unit Price": None,
+                                                    "Total Price": st.column_config.NumberColumn(width="small", disabled=True)
+                                                })
                     
                     edited_est['Total Price'] = pd.to_numeric(edited_est['Unit Price']) * pd.to_numeric(edited_est['Qty'])
                     
@@ -439,8 +446,11 @@ with tab3:
             with st.form("add_est"):
                 c1, c2, c3 = st.columns([3, 1, 1])
                 inam = c1.selectbox("Item", list(imap.keys()))
-                iqty = c2.number_input("Qty", 1.0, step=0.5)
-                iunit = c3.text_input("Unit", value=imap.get(inam, {}).get('Unit', 'Pcs'))
+                iqty = c2.number_input("Qty", 1.0, step=1.0)
+                unit_options = ["pcs", "m", "cm", "in", "ft"]
+                default_unit = imap.get(inam, {}).get('Unit', 'pcs')
+                unit_index = unit_options.index(default_unit) if default_unit in unit_options else 0
+                iunit = c3.selectbox("Unit", unit_options, index=unit_index)
                 if st.form_submit_button("⬇️ Add"):
                     selected_item = imap.get(inam, {})
                     st.session_state[ssk].append({"Item": inam, "Qty": iqty, "Base Rate": selected_item.get('base_rate', 0), "Unit": iunit})
@@ -455,7 +465,14 @@ with tab3:
             df["Total Price"] = pd.to_numeric(df["Base Rate"]) * pd.to_numeric(df["Qty"]) * mm
             
             st.write("#### Items")
-            edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}", column_config={"Total Price": st.column_config.NumberColumn(disabled=True)})
+            edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}", 
+                column_config={
+                    "Item": st.column_config.Column(width="large"),
+                    "Qty": st.column_config.NumberColumn(width="small"),
+                    "Unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "cm", "in", "ft"], width="small", required=True),
+                    "Base Rate": st.column_config.NumberColumn(width="small"),
+                    "Total Price": st.column_config.NumberColumn(width="small", disabled=True)
+                })
             
             mt = pd.to_numeric(edf["Total Price"]).sum()
             daily_cost = float(gs.get('daily_labor_cost', 1000))
@@ -508,7 +525,8 @@ with tab4:
     st.subheader("Inventory (Editable)")
     with st.form("inv_add"):
         c1, c2, c3 = st.columns([2, 1, 1])
-        new_item, rate, unit = c1.text_input("Item Name"), c2.number_input("Rate", min_value=0.0), c3.text_input("Unit", "Pcs")
+        new_item, rate = c1.text_input("Item Name"), c2.number_input("Rate", min_value=0.0)
+        unit = c3.selectbox("Unit", ["pcs", "m", "cm", "in", "ft"])
         if st.form_submit_button("Add Item"):
             if run_query(supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate, "Unit": unit})):
                 st.success("Added"); st.rerun()
@@ -516,8 +534,11 @@ with tab4:
     inv_resp = run_query(supabase.table("inventory").select("*").order("item_name"))
     if inv_resp and inv_resp.data:
         inv_df = pd.DataFrame(inv_resp.data)
-        if 'Unit' not in inv_df.columns: inv_df['Unit'] = "Pcs"
-        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit")
+        if 'Unit' not in inv_df.columns: inv_df['Unit'] = "pcs"
+        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit",
+                                    column_config={
+                                        "Unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "cm", "in", "ft"], required=True)
+                                    })
         
         if st.button("💾 Save Inventory Changes"):
             df_to_save = edited_inv.copy()
@@ -539,4 +560,3 @@ with tab4:
         np = st.text_input("New Password", type="password")
         if st.form_submit_button("Update Password"):
             run_query(supabase.table("users").update({"password": np}).eq("username", st.session_state.username)); st.success("Updated!")
-
