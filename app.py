@@ -270,14 +270,16 @@ with tab1:
                 est_data = client['internal_estimate']
                 s_items, s_days = est_data.get('items', []), est_data.get('days', 1.0)
                 
-                if s_items:
-                    idf = pd.DataFrame(s_items)
-                    # Ensure all required columns exist
-                    for col in ["Qty", "Item", "Unit", "Base Rate", "Total Price"]:
+                ssk_dash = f"dash_est_{client['id']}"
+                if ssk_dash not in st.session_state:
+                    st.session_state[ssk_dash] = s_items
+
+                if st.session_state[ssk_dash]:
+                    idf = pd.DataFrame(st.session_state[ssk_dash])
+                    for col in ["Qty", "Item", "Unit", "Base Rate", "Total Price", "Unit Price"]:
                         if col not in idf.columns: idf[col] = "" if col in ["Item", "Unit"] else 0.0
                     
                     column_order = ['Qty', 'Item', 'Unit', 'Base Rate', 'Unit Price', 'Total Price']
-                    idf['Unit Price'] = idf.apply(lambda row: pd.to_numeric(row['Total Price']) / pd.to_numeric(row['Qty']) if pd.to_numeric(row['Qty']) != 0 else 0, axis=1)
                     idf = idf.reindex(columns=column_order, fill_value="")
 
                     edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}",
@@ -314,6 +316,10 @@ with tab1:
 
                     edited_est['Total Price'] = edited_est.apply(calc_total, axis=1)
                     edited_est['Unit Price'] = edited_est['Total Price'] / edited_est['Qty'].replace(0, 1)
+
+                    if edited_est.to_dict(orient="records") != st.session_state[ssk_dash]:
+                        st.session_state[ssk_dash] = edited_est.to_dict(orient="records")
+                        st.rerun()
 
                     mat_sell = edited_est['Total Price'].sum()
                     daily_cost = float(gs.get('daily_labor_cost', 1000))
@@ -420,7 +426,7 @@ with tab3:
                     "Total Price": st.column_config.NumberColumn("Total Price", width="small", disabled=True)
                 })
             
-            # --- Recalculation Logic ---
+            # --- Universal Calculation Logic ---
             CONVERSIONS = {'pcs': 1.0, 'each': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
             mm = 1 + (am.get('part_margin', 0)/100) + (am.get('labor_margin', 0)/100) + (am.get('extra_margin', 0)/100)
 
@@ -440,6 +446,11 @@ with tab3:
 
             edf['Total Price'] = edf.apply(calc_total, axis=1)
             edf['Unit Price'] = edf['Total Price'] / edf['Qty'].replace(0, 1)
+
+            # Sync logic
+            if edf.to_dict(orient="records") != st.session_state[ssk]:
+                st.session_state[ssk] = edf.to_dict(orient="records")
+                st.rerun()
 
             mt = pd.to_numeric(edf["Total Price"]).sum()
             daily_cost = float(gs.get('daily_labor_cost', 1000))
