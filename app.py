@@ -275,7 +275,7 @@ with tab1:
                             else:
                                 am_for_calc = am # Use directly if already in full form or global settings
                             
-                            # Call the centralized function
+                            # Call the centralized function for live editor metrics
                             calculated_results = helpers.calculate_estimate_details(
                                 edf_items_list=edited_est.to_dict(orient="records"),
                                 days=s_days,
@@ -287,9 +287,17 @@ with tab1:
                             labor_actual_cost = calculated_results["labor_actual_cost"]
                             rounded_grand_total = calculated_results["rounded_grand_total"]
                             total_profit = calculated_results["total_profit"]
-                            advance_amount = calculated_results["advance_amount"]
                             labor_charged_display = calculated_results["disp_lt"]
                             edited_est_with_prices = calculated_results["edf_details_df"]
+
+                            # Per user request for data consistency, re-calculate for "Advance Required" using original saved data
+                            saved_data_results = helpers.calculate_estimate_details(
+                                edf_items_list=s_items,
+                                days=s_days,
+                                margins=am_for_calc,
+                                global_settings=gs
+                            )
+                            advance_amount = saved_data_results["advance_amount"]
                             
                             m1, m2, m3, m4, m5 = st.columns(5)
                             m1.metric("Material Total", f"₹{mat_sell:,.0f}"); m2.metric("Labor", f"₹{labor_charged_display:,.0f}"); m3.metric("Grand Total", f"₹{rounded_grand_total:,.0f}"); m4.metric("Total Profit", f"₹{total_profit:,.0f}"); m5.metric("Advance Required", f"₹{advance_amount:,.0f}")
