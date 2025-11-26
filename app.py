@@ -382,13 +382,13 @@ with tab1:
                         df_profit['Base Rate'] = pd.to_numeric(df_profit['Base Rate'].fillna(0))
                         df_profit['Total Price'] = pd.to_numeric(df_profit['Total Price'].fillna(0))
                         
-                        df_profit['Unit Sell Price'] = df_profit['Total Price'] / df_profit['Qty'].replace(0, 1)
+                        df_profit['Total Sell Price'] = df_profit['Total Price'] # Use existing Total Price as Total Sell Price
                         
                         def calculate_profit_row(row):
                             qty = float(row.get('Qty', 0))
                             base_rate = float(row.get('Base Rate', 0))
                             unit = row.get('Unit', 'pcs')
-                            total_sell = float(row.get('Total Price', 0))
+                            total_sell = float(row.get('Total Sell Price', 0)) # Use Total Sell Price here
                             
                             factor = CONVERSIONS.get(unit, 1.0)
                             total_cost = base_rate * qty * factor
@@ -396,7 +396,12 @@ with tab1:
 
                         df_profit['Row Profit'] = df_profit.apply(calculate_profit_row, axis=1)
                         
-                        st.dataframe(df_profit[['Item', 'Qty', 'Unit', 'Base Rate', 'Unit Sell Price', 'Row Profit']], use_container_width=True, hide_index=True)
+                        # Apply formatting
+                        df_profit['Base Rate'] = df_profit['Base Rate'].round(2)
+                        df_profit['Total Sell Price'] = df_profit['Total Sell Price'].round(2)
+                        df_profit['Row Profit'] = df_profit['Row Profit'].round(2)
+
+                        st.dataframe(df_profit[['Item', 'Qty', 'Unit', 'Base Rate', 'Total Sell Price', 'Row Profit']], use_container_width=True, hide_index=True)
                         st.metric("Net Profit (from Grand Total)", f"₹{total_profit:,.0f}")
                     else: 
                         st.info("Mark status as 'Work Done' to view Internal Profit Analysis.")
