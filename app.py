@@ -305,9 +305,7 @@ with tab1:
                             qty = float(row.get('Qty', 0))
                             base_rate = float(row.get('Base Rate', 0))
                             unit = row.get('Unit', 'pcs')
-                            total_sell = float(row.get('Total Sell Price', 0))
-                            
-                            factor = CONVERSIONS.get(unit, 1.0)
+                            factor = helpers.CONVERSIONS.get(unit, 1.0)
                             total_cost = base_rate * qty * factor
                             return total_sell - total_cost
 
@@ -433,7 +431,7 @@ with tab3:
                     qty = float(row.get('Qty', 0))
                     base = float(row.get('Base Rate', 0))
                     unit = row.get('Unit', 'pcs')
-                    factor = CONVERSIONS.get(unit, 1.0)
+                    factor = helpers.CONVERSIONS.get(unit, 1.0)
                     
                     if unit in ['m', 'cm', 'ft', 'in']:
                         return base * (qty * factor) * mm
@@ -766,7 +764,7 @@ with tab6:
 
                                 mm_for_client = 1 + (am_for_client.get('part_margin', 0)/100) + (am_for_client.get('labor_margin', 0)/100) + (am_for_client.get('extra_margin', 0)/100)
 
-                                factor = CONVERSIONS.get(unit, 1.0)
+                                factor = helpers.CONVERSIONS.get(unit, 1.0)
                                 if unit in ['m', 'cm', 'ft', 'in']:
                                     material_sell_price_for_client += base_rate * (qty * factor) * mm_for_client
                                 else:
