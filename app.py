@@ -343,7 +343,16 @@ with tab1:
                     mat_sell = edited_est['Total Price'].sum()
                     daily_cost = float(gs.get('daily_labor_cost', 1000))
                     labor_actual_cost = float(s_days) * daily_cost
-                    total_base_cost = (pd.to_numeric(edited_est['Base Rate'].fillna(0)) * pd.to_numeric(edited_est['Qty'].fillna(0))).sum() + labor_actual_cost
+                    # Calculate total base cost considering unit conversions
+                    def calculate_item_base_cost(row):
+                        qty = float(row.get('Qty', 0))
+                        base_rate = float(row.get('Base Rate', 0))
+                        unit = row.get('Unit', 'pcs')
+                        factor = CONVERSIONS.get(unit, 1.0)
+                        return base_rate * qty * factor
+
+                    total_material_base_cost = edited_est.apply(calculate_item_base_cost, axis=1).sum()
+                    total_base_cost = total_material_base_cost + labor_actual_cost
                     raw_grand_total = mat_sell + labor_actual_cost
                     rounded_grand_total = math.ceil(raw_grand_total / 100) * 100
                     total_profit = rounded_grand_total - total_base_cost
@@ -374,7 +383,18 @@ with tab1:
                         df_profit['Total Price'] = pd.to_numeric(df_profit['Total Price'].fillna(0))
                         
                         df_profit['Unit Sell Price'] = df_profit['Total Price'] / df_profit['Qty'].replace(0, 1)
-                        df_profit['Row Profit'] = df_profit.apply(lambda row: row['Total Price'] - (row['Base Rate'] * row['Qty']), axis=1)
+                        
+                        def calculate_profit_row(row):
+                            qty = float(row.get('Qty', 0))
+                            base_rate = float(row.get('Base Rate', 0))
+                            unit = row.get('Unit', 'pcs')
+                            total_sell = float(row.get('Total Price', 0))
+                            
+                            factor = CONVERSIONS.get(unit, 1.0)
+                            total_cost = base_rate * qty * factor
+                            return total_sell - total_cost
+
+                        df_profit['Row Profit'] = df_profit.apply(calculate_profit_row, axis=1)
                         
                         st.dataframe(df_profit[['Item', 'Qty', 'Unit', 'Base Rate', 'Unit Sell Price', 'Row Profit']], use_container_width=True, hide_index=True)
                         st.metric("Net Profit (from Grand Total)", f"₹{total_profit:,.0f}")
