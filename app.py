@@ -711,7 +711,15 @@ with tab5:
 
     st.divider()
     st.subheader("Recent History")
-    purchase_log_resp = run_query(supabase.table("purchase_log").select("*").order("created_at", desc=True).limit(50))
+    
+    purchase_log_resp = None
+    try:
+        purchase_log_resp = run_query(supabase.table("purchase_log").select("*").order("created_at", desc=True).limit(50))
+    except Exception as e:
+        st.info("Purchase History not active yet.")
+        # Optional: log the actual error for debugging
+        # st.error(f"Error fetching purchase log: {e}")
+
     supplier_resp_history = run_query(supabase.table("suppliers").select("id, name"))
 
     if purchase_log_resp and purchase_log_resp.data and supplier_resp_history and supplier_resp_history.data:
@@ -729,4 +737,5 @@ with tab5:
 
         st.dataframe(df_merged[display_cols], use_container_width=True, hide_index=True)
     else:
-        st.info("No purchases recorded yet.")
+        if purchase_log_resp is not None: # Only show this if the query didn't fail, but returned no data
+            st.info("No purchases recorded yet.")
