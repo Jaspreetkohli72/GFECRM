@@ -381,14 +381,18 @@ with tab3:
         ssk = f"est_{tc['id']}"
         if ssk not in st.session_state: st.session_state[ssk] = li
 
-        st.divider(); gs = get_settings(); uc = st.checkbox("🛠️ Use Custom Margins", value=(sm is not None), key="cm")
+        st.divider(); gs = get_settings()
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            uc = st.checkbox("🛠️ Use Custom Margins", value=(sm is not None), key="cm")
+        with col2:
+            dys = st.number_input("⏳ Days", min_value=1, step=1, value=int(sd))
         am = gs
         if uc:
             dp, dl, de = (int(sm['p']), int(sm['l']), int(sm['e'])) if sm else (int(gs['part_margin']), int(gs['labor_margin']), int(gs['extra_margin']))
             mc1, mc2, mc3 = st.columns(3)
             cp, cl, ce = mc1.slider("Part %", 0, 100, dp, key="cp"), mc2.slider("Labor %", 0, 100, dl, key="cl"), mc3.slider("Extra %", 0, 100, de, key="ce")
             am = {'part_margin': cp, 'labor_margin': cl, 'extra_margin': ce}
-        dys = st.number_input("⏳ Days", min_value=1, step=1, value=int(sd))
 
         st.divider()
         inv = run_query(supabase.table("inventory").select("*"))
@@ -507,7 +511,13 @@ with tab4:
     if inv_resp and inv_resp.data:
         inv_df = pd.DataFrame(inv_resp.data)
         if 'unit' not in inv_df.columns: inv_df['unit'] = "pcs"
-        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit")
+        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit",
+                                    column_config={
+                                        "id": None, # Hide the 'id' column
+                                        "item_name": st.column_config.Column("Item Name", width="medium"),
+                                        "base_rate": st.column_config.NumberColumn("Rate", width="small"),
+                                        "unit": st.column_config.SelectboxColumn("Unit", options=['pcs', 'm', 'ft', 'cm', 'in'], width="small", required=True)
+                                    })
         
         if st.button("💾 Save Inventory Changes"):
             df_to_save = edited_inv.copy()
