@@ -1,10 +1,13 @@
 import streamlit as st
 from supabase import create_client
-import pandas as pd
+from supabase.client import Client as SupabaseClient, PostgrestAPIResponse, F
+from utils import helpers
+from supabase.client import F
+
 from datetime import datetime, timedelta
 import time
-import math
-from fpdf import FPDF
+
+
 from streamlit_js_eval import get_geolocation
 import altair as alt
 import extra_streamlit_components as stx
@@ -115,108 +118,12 @@ def get_settings():
     return defaults
 
 # --- PROFESSIONAL PDF GENERATOR ---
-def create_pdf(client_name, items, labor_days, labor_total, grand_total, advance_amount):
-    pdf = FPDF()
-    pdf.add_page()
-    
-    pdf.set_font("Arial", 'B', 20)
-    pdf.cell(0, 10, "Jugnoo", ln=True, align='L')
-    pdf.set_font("Arial", 'I', 10)
-    pdf.cell(0, 6, "Smart Automation Solutions", ln=True, align='L')
-    pdf.line(10, 28, 200, 28)
-    pdf.ln(15)
-    
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 8, f"Estimate For: {client_name}", ln=True)
-    pdf.set_font("Arial", '', 10)
-    pdf.cell(0, 8, f"Date: {datetime.now().strftime('%d-%b-%Y')}", ln=True)
-    pdf.ln(5)
-    
-    pdf.set_fill_color(240, 240, 240)
-    pdf.set_font("Arial", 'B', 10)
-    pdf.cell(100, 10, "Description", 1, 0, 'L', 1)
-    pdf.cell(15, 10, "Qty", 1, 0, 'C', 1)
-    pdf.cell(15, 10, "Unit", 1, 0, 'C', 1)
-    pdf.cell(60, 10, "Amount (INR)", 1, 1, 'R', 1)
-    
-    pdf.set_font("Arial", '', 10)
-    for item in items:
-        pdf.cell(100, 8, str(item.get('Item', '')), 1)
-        pdf.cell(15, 8, str(item.get('Qty', 0)), 1, 0, 'C')
-        pdf.cell(15, 8, str(item.get('Unit', '')), 1, 0, 'C')
-        pdf.cell(60, 8, f"{item.get('Total Price', 0):,.2f}", 1, 1, 'R')
-        
-    pdf.set_font("Arial", '', 10)
-    pdf.cell(130, 8, f"Labor / Installation ({labor_days} Days)", 1, 0, 'R')
-    pdf.cell(60, 8, f"{labor_total:,.2f}", 1, 1, 'R')
-    
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(130, 10, "Grand Total", 1, 0, 'R')
-    pdf.cell(60, 10, f"Rs. {grand_total:,.2f}", 1, 1, 'R')
-    
-    pdf.ln(10)
-    pdf.set_font("Arial", 'B', 10)
-    pdf.multi_cell(0, 5, f"Advance Payment Required: Rs. {advance_amount:,.2f}")
-    pdf.ln(5)
-    pdf.set_font("Arial", 'I', 8)
-    pdf.set_text_color(100, 100, 100)
-    pdf.multi_cell(0, 5, "NOTE: This is an estimate only. Final rates may vary based on actual site conditions and market fluctuations. Valid for 7 days.")
-    
-    return pdf.output(dest='S').encode('latin-1')
-
-def create_internal_pdf(client_name, items, labor_days, labor_cost, labor_charged, grand_total, total_profit):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, "INTERNAL PROFIT REPORT (CONFIDENTIAL)", ln=True, align='C')
-    pdf.set_font("Arial", '', 10)
-    pdf.cell(0, 10, f"Client: {client_name} | Date: {datetime.now().strftime('%Y-%m-%d')}", ln=True)
-    pdf.ln(5)
-
-    pdf.set_fill_color(220, 220, 220)
-    pdf.set_font("Arial", 'B', 9)
-    pdf.cell(70, 8, "Item Description", 1, 0, 'L', 1)
-    pdf.cell(15, 8, "Qty", 1, 0, 'C', 1)
-    pdf.cell(35, 8, "Base Rate", 1, 0, 'R', 1)
-    pdf.cell(35, 8, "Sold At", 1, 0, 'R', 1)
-    pdf.cell(35, 8, "Profit", 1, 1, 'R', 1)
-
-    pdf.set_font("Arial", '', 9)
-    for item in items:
-        qty = float(item.get('Qty', 0))
-        base = float(item.get('Base Rate', 0))
-        total_sell = float(item.get('Total Price', 0))
-        unit_sell = total_sell / qty if qty > 0 else 0
-        row_profit = total_sell - (base * qty)
-        
-        pdf.cell(70, 8, str(item.get('Item', ''))[:35], 1)
-        pdf.cell(15, 8, str(qty), 1, 0, 'C')
-        pdf.cell(35, 8, f"{base:,.2f}", 1, 0, 'R')
-        pdf.cell(35, 8, f"{unit_sell:,.2f}", 1, 0, 'R')
-        pdf.set_text_color(0, 150, 0); pdf.cell(35, 8, f"{row_profit:,.2f}", 1, 1, 'R'); pdf.set_text_color(0, 0, 0)
-
-    labor_profit = labor_charged - labor_cost
-    pdf.ln(5)
-    pdf.set_font("Arial", 'B', 10)
-    pdf.cell(120, 8, f"Labor ({labor_days} Days)", 1, 0, 'R')
-    pdf.cell(35, 8, f"Cost: {labor_cost:,.2f}", 1, 0, 'R')
-    pdf.cell(35, 8, f"Chrg: {labor_charged:,.2f}", 1, 1, 'R')
-
-    pdf.ln(10)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(120, 10, "TOTAL REVENUE:", 1, 0, 'R')
-    pdf.cell(70, 10, f"Rs. {grand_total:,.2f}", 1, 1, 'R')
-    pdf.cell(120, 10, "NET PROFIT:", 1, 0, 'R')
-    pdf.set_text_color(0, 150, 0); pdf.cell(70, 10, f"Rs. {total_profit:,.2f}", 1, 1, 'R')
-
-    return pdf.output(dest='S').encode('latin-1')
-
 # ---------------------------
 # 4. MAIN UI
 # ---------------------------
 
 
-CONVERSIONS = {'pcs': 1.0, 'each': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
+
 
 if not supabase: st.stop()
 
@@ -338,84 +245,68 @@ with tab1:
                                                     "Total Price": st.column_config.NumberColumn("Total Price", width="small", disabled=True)
                                                 })
 
-                    # --- Universal Calculation Logic ---
-                    s_margins = est_data.get('margins')
+                    # --- Refactored Calculation Logic ---
                     gs = get_settings()
-                    am = s_margins if s_margins else gs
+                    # Ensure am is correctly set from stored margins or global settings
+                    am = est_data.get('margins') if est_data.get('margins') else gs
+                    # If custom margins are stored as {'p': val, 'l': val, 'e': val}, convert to full names
+                    if am and 'p' in am:
+                        am_for_calc = {
+                            'part_margin': am.get('p', 0),
+                            'labor_margin': am.get('l', 0),
+                            'extra_margin': am.get('e', 0)
+                        }
+                    else:
+                        am_for_calc = am # Use directly if already in full form or global settings
                     
-                    CONVERSIONS = {'pcs': 1.0, 'each': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
-                    mm = 1 + (am.get('part_margin', 0)/100) + (am.get('labor_margin', 0)/100) + (am.get('extra_margin', 0)/100)
+                    # Call the centralized function
+                    calculated_results = calculate_estimate_details(
+                        edf_items_list=edited_est.to_dict(orient="records"),
+                        days=s_days,
+                        margins=am_for_calc,
+                        global_settings=gs
+                    )
 
-                    def calc_total(row):
-                        try:
-                            qty = float(row.get('Qty', 0))
-                            base = float(row.get('Base Rate', 0))
-                            unit = row.get('Unit', 'pcs')
-                            factor = CONVERSIONS.get(unit, 1.0)
-                            
-                            if unit in ['m', 'cm', 'ft', 'in']:
-                                return base * (qty * factor) * mm
-                            else:
-                                return base * qty * mm
-                        except (ValueError, TypeError):
-                            return 0.0
-
-                    edited_est['Total Price'] = edited_est.apply(calc_total, axis=1)
-                    edited_est['Unit Price'] = edited_est['Total Price'] / edited_est['Qty'].replace(0, 1)
-
-                    if edited_est.to_dict(orient="records") != st.session_state[ssk_dash]:
-                        st.session_state[ssk_dash] = edited_est.to_dict(orient="records")
-                        st.rerun()
-
-                    mat_sell = edited_est['Total Price'].sum()
-                    daily_cost = float(gs.get('daily_labor_cost', 1000))
-                    labor_actual_cost = float(s_days) * daily_cost
-                    # Calculate total base cost considering unit conversions
-                    def calculate_item_base_cost(row):
-                        qty = float(row.get('Qty', 0))
-                        base_rate = float(row.get('Base Rate', 0))
-                        unit = row.get('Unit', 'pcs')
-                        factor = CONVERSIONS.get(unit, 1.0)
-                        return base_rate * qty * factor
-
-                    total_material_base_cost = edited_est.apply(calculate_item_base_cost, axis=1).sum()
-                    total_base_cost = total_material_base_cost + labor_actual_cost
-                    raw_grand_total = mat_sell + labor_actual_cost
-                    rounded_grand_total = math.ceil(raw_grand_total / 100) * 100
-                    total_profit = rounded_grand_total - total_base_cost
-                    advance_amount = math.ceil((total_base_cost + (total_profit * 0.10)) / 100) * 100
-                    labor_charged_display = labor_actual_cost + (rounded_grand_total - raw_grand_total)
+                    mat_sell = calculated_results["mat_sell"]
+                    labor_actual_cost = calculated_results["labor_actual_cost"]
+                    rounded_grand_total = calculated_results["rounded_grand_total"]
+                    total_profit = calculated_results["total_profit"]
+                    advance_amount = calculated_results["advance_amount"]
+                    labor_charged_display = calculated_results["disp_lt"]
+                    edited_est_with_prices = calculated_results["edf_details_df"]
                     
                     m1, m2, m3, m4, m5 = st.columns(5)
                     m1.metric("Material Total", f"₹{mat_sell:,.0f}"); m2.metric("Labor", f"₹{labor_charged_display:,.0f}"); m3.metric("Grand Total", f"₹{rounded_grand_total:,.0f}"); m4.metric("Total Profit", f"₹{total_profit:,.0f}"); m5.metric("Advance Required", f"₹{advance_amount:,.0f}")
                     
                     if st.button("💾 Save Changes", key=f"sv_{client['id']}"):
-                        df_to_save = edited_est.copy()
+                        df_to_save = edited_est_with_prices.copy() # Use the DataFrame with updated prices
                         for col in ['Qty', 'Base Rate', 'Total Price', "Unit Price"]:
                             df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
                         for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
-                        new_json = {"items": df_to_save.to_dict(orient="records"), "days": s_days, "margins": est_data.get('margins')}
+                        new_json = {"items": df_to_save.to_dict(orient="records"), "days": s_days, "margins": est_data.get('margins')} # Save original margins structure
                         run_query(supabase.table("clients").update({"internal_estimate": new_json}).eq("id", client['id']))
                         st.toast("Saved!", icon="✅")
                     
                     st.write("#### 📥 Download Bills")
                     c_pdf1, c_pdf2 = st.columns(2)
-                    pdf_client = create_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_charged_display, rounded_grand_total, advance_amount)
+                    pdf_client = create_pdf(client['name'], edited_est_with_prices.to_dict(orient="records"), s_days, labor_charged_display, rounded_grand_total, advance_amount)
                     c_pdf1.download_button("📄 Client Invoice", pdf_client, f"Invoice_{client['name']}.pdf", "application/pdf", key=f"pdf_c_{client['id']}")
                     st.write("#### Internal Profit Analysis")
                     if client.get('status') == "Work Done":
-                        df_profit = edited_est.copy()
+                        df_profit = edited_est_with_prices.copy()
                         df_profit['Qty'] = pd.to_numeric(df_profit['Qty'].fillna(0))
                         df_profit['Base Rate'] = pd.to_numeric(df_profit['Base Rate'].fillna(0))
                         df_profit['Total Price'] = pd.to_numeric(df_profit['Total Price'].fillna(0))
                         
                         df_profit['Total Sell Price'] = df_profit['Total Price'] # Use existing Total Price as Total Sell Price
                         
+                        # Use calculate_estimate_details result for profit details if possible, or recalculate
+                        # For now, keeping the original detailed profit calculation here, ensuring it uses edited_est_with_prices
                         def calculate_profit_row(row):
                             qty = float(row.get('Qty', 0))
                             base_rate = float(row.get('Base Rate', 0))
                             unit = row.get('Unit', 'pcs')
-                            total_sell = float(row.get('Total Sell Price', 0)) # Use Total Sell Price here
+                            total_sell = float(row.get('Total Sell Price', 0))
                             
                             factor = CONVERSIONS.get(unit, 1.0)
                             total_cost = base_rate * qty * factor
@@ -535,7 +426,7 @@ with tab3:
                 })
             
             # --- Universal Calculation Logic ---
-            CONVERSIONS = {'pcs': 1.0, 'each': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
+
             mm = 1 + (am.get('part_margin', 0)/100) + (am.get('labor_margin', 0)/100) + (am.get('extra_margin', 0)/100)
 
             def calc_total(row):
@@ -953,3 +844,5 @@ with tab6:
     except Exception as e:
         st.error(f"An error occurred during Profit & Loss analysis: {e}")
         st.info("Please ensure the database connection is active and data is correctly formatted.")
+
+
