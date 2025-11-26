@@ -687,6 +687,7 @@ with tab5:
         
                 supplier_options = {s['name']: s['id'] for s in suppliers_response.data} if suppliers_response and suppliers_response.data else {}
                 inventory_options = {i['item_name']: i for i in inventory_response.data} if inventory_response and inventory_response.data else {}
+                
                 if not supplier_options:
                     st.warning("Please add a supplier in the 'Directory' section first.")
                 if not inventory_options:
