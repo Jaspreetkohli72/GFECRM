@@ -116,6 +116,18 @@ def create_internal_pdf(*args, **kwargs):
 
 
 def calculate_estimate_details(edf_items_list, days, margins, global_settings):
+    """
+    Calculates various financial details for an estimate.
+
+    Args:
+        edf_items_list (list): A list of dictionaries representing the items in the estimate.
+        days (float): The number of labor days for the estimate.
+        margins (dict): A dictionary of margins to apply to the estimate.
+        global_settings (dict): A dictionary of global settings.
+
+    Returns:
+        dict: A dictionary containing the calculated financial details.
+    """
     # edf_items_list is a list of dictionaries, representing the items in the estimate
     # CONVERSIONS is a global variable
     # mm calculation
@@ -174,6 +186,7 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings):
     }
 
 def calculate_profit_row(row):
+    """Calculates the profit for a single row in an estimate."""
     qty = float(row.get('Qty', 0))
     base_rate = float(row.get('Base Rate', 0))
     unit = row.get('Unit', 'pcs')
@@ -183,7 +196,15 @@ def calculate_profit_row(row):
     return total_sell - total_cost
 
 def create_item_dataframe(items):
-    """Creates and validates a DataFrame for items."""
+    """
+    Creates and validates a DataFrame for items.
+
+    Args:
+        items (list): A list of item dictionaries.
+
+    Returns:
+        pd.DataFrame: A validated DataFrame with the required columns.
+    """
     df = pd.DataFrame(items)
     for col in ["Qty", "Item", "Unit", "Base Rate", "Total Price", "Unit Price"]:
         if col not in df.columns:

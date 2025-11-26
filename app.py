@@ -150,11 +150,12 @@ with tab1:
         key="status_filter_radio"
     )
 
-    try:
-        response = supabase.table("clients").select("*").order("created_at", desc=True).execute()
-    except Exception as e:
-        st.error(f"Database Error: {e}")
-        response = None
+    with st.spinner("Loading Dashboard..."):
+        try:
+            response = supabase.table("clients").select("*").order("created_at", desc=True).execute()
+        except Exception as e:
+            st.error(f"Database Error: {e}")
+            response = None
     
         if response and response.data:
             df = pd.DataFrame(response.data)
@@ -366,11 +367,12 @@ with tab2:
 # --- TAB 3: ESTIMATOR ---
 with tab3:
     st.subheader("Estimator Engine")
-    try:
-        ac = supabase.table("clients").select("id, name, internal_estimate").neq("status", "Closed").execute()
-    except Exception as e:
-        st.error(f"Database Error: {e}")
-        ac = None
+    with st.spinner("Loading Estimator..."):
+        try:
+            ac = supabase.table("clients").select("id, name, internal_estimate").neq("status", "Closed").execute()
+        except Exception as e:
+            st.error(f"Database Error: {e}")
+            ac = None
     cd = {c['name']: c for c in ac.data} if ac and ac.data else {}
     tn = st.selectbox("Select Client", list(cd.keys()), key="est_sel")
     
@@ -626,11 +628,12 @@ with tab5:
 
     # --- Middle Section (Full Width): Existing Suppliers ---
     st.subheader("Existing Suppliers")
-    try:
-        supplier_resp = supabase.table("suppliers").select("*").order("name").execute()
-    except Exception as e:
-        st.error(f"Database Error: {e}")
-        supplier_resp = None
+    with st.spinner("Loading Suppliers..."):
+        try:
+            supplier_resp = supabase.table("suppliers").select("*").order("name").execute()
+        except Exception as e:
+            st.error(f"Database Error: {e}")
+            supplier_resp = None
     if supplier_resp and supplier_resp.data:
         df_suppliers = pd.DataFrame(supplier_resp.data)
         edited_suppliers = st.data_editor(df_suppliers, num_rows="dynamic", use_container_width=True, key="sup_editor",
@@ -671,20 +674,19 @@ with tab5:
         # --- Top Section: Left Column (Record Purchase) ---
         with col_purchase:
             st.subheader("Record Purchase")
-            try:
-                supplier_resp_p = supabase.table("suppliers").select("id, name").order("name").execute()
-            except Exception as e:
-                st.error(f"Database Error: {e}")
-                supplier_resp_p = None
-            try:
-                inventory_resp_p = supabase.table("inventory").select("item_name, base_rate").order("item_name").execute()
-            except Exception as e:
-                st.error(f"Database Error: {e}")
-                inventory_resp_p = None
-
-            supplier_options = {s['name']: s['id'] for s in supplier_resp_p.data} if supplier_resp_p and supplier_resp_p.data else {}
-            inventory_options = {i['item_name']: i for i in inventory_resp_p.data} if inventory_resp_p and inventory_resp_p.data else {}
-
+                    try:
+                        suppliers_response = supabase.table("suppliers").select("id, name").order("name").execute()
+                    except Exception as e:
+                        st.error(f"Database Error: {e}")
+                        suppliers_response = None
+                    try:
+                        inventory_response = supabase.table("inventory").select("item_name, base_rate").order("item_name").execute()
+                    except Exception as e:
+                        st.error(f"Database Error: {e}")
+                        inventory_response = None
+            
+                    supplier_options = {s['name']: s['id'] for s in suppliers_response.data} if suppliers_response and suppliers_response.data else {}
+                    inventory_options = {i['item_name']: i for i in inventory_response.data} if inventory_response and inventory_response.data else {}
             if not supplier_options:
                 st.warning("Please add a supplier in the 'Directory' section first.")
             if not inventory_options:
@@ -799,19 +801,20 @@ with tab5:
 with tab6:
     st.subheader("📈 Profit & Loss Analysis")
 
-    try:
-        # Fetch Data
+    with st.spinner("Loading P&L Data..."):
         try:
-            clients_response = supabase.table("clients").select("status, internal_estimate").execute()
-        except Exception as e:
-            st.error(f"Database Error: {e}")
-            clients_response = None
-        try:
-            purchase_log_response = supabase.table("purchase_log").select("total_cost").execute()
-        except Exception as e:
-            st.error(f"Database Error: {e}")
-            purchase_log_response = None
-        settings = get_settings() # Re-use existing helper function
+            # Fetch Data
+            try:
+                clients_response = supabase.table("clients").select("status, internal_estimate").execute()
+            except Exception as e:
+                st.error(f"Database Error: {e}")
+                clients_response = None
+            try:
+                purchase_log_response = supabase.table("purchase_log").select("total_cost").execute()
+            except Exception as e:
+                st.error(f"Database Error: {e}")
+                purchase_log_response = None
+            settings = get_settings() # Re-use existing helper function
 
         if clients_response and clients_response.data and purchase_log_response and purchase_log_response.data and settings:
             all_clients = clients_response.data
