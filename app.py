@@ -917,7 +917,7 @@ with tab6:
                 bar_chart = alt.Chart(chart_data_bar).mark_bar().encode(
                     x=alt.X('Category:N', axis=alt.Axis(title=None, labels=True)),
                     y=alt.Y('Amount:Q', axis=alt.Axis(title="Amount (₹)", labels=True)),
-                    color=alt.Color('Category:N', scale=alt.Scale(domain=['Revenue', 'Material Expense', 'Labor Expense'], range=['#4CAF50', '#F44336', '#FFC107']), legend=None),
+                    color=alt.Color('Category:N', scale=alt.Scale(domain=['Revenue', 'Material Expense', 'Labor Expense'], range=['#2ecc71', '#e74c3c', '#f1c40f']), legend=None), # Updated range
                     tooltip=['Category:N', alt.Tooltip('Amount:Q', format='₹,.0f')]
                 ).properties(
                     title='Total Revenue vs Expenses'
@@ -935,9 +935,9 @@ with tab6:
                 ])
                 total_cost_for_pie = float(total_material_expense) + float(total_labor_expense)
                 if total_cost_for_pie > 0:
-                    pie_chart = alt.Chart(chart_data_pie).mark_arc(outerRadius=120).encode(
+                    pie_chart = alt.Chart(chart_data_pie).mark_arc(innerRadius=50).encode( # Added innerRadius
                         theta=alt.Theta("Amount:Q", stack=True), # Explicitly :Q
-                        color=alt.Color("Cost Type:N", scale=alt.Scale(domain=['Material Cost', 'Labor Cost'], range=['#F44336', '#FFC107']), legend=alt.Legend(title="Cost Type")), # Explicitly :N
+                        color=alt.Color("Cost Type:N", scale=alt.Scale(domain=['Material Cost', 'Labor Cost'], range=['#F44336', '#FFC107']), legend=alt.Legend(title="Cost Type")), # Updated range
                         order=alt.Order("Amount", sort="descending"),
                         tooltip=['Cost Type:N', alt.Tooltip('Amount:Q', format="₹,.0f"), alt.Tooltip('Amount:Q', format=".1%", title="Percentage")] # Explicitly :N and :Q
                     ).properties(
