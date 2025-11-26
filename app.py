@@ -275,7 +275,7 @@ with tab1:
                                 am_for_calc = am # Use directly if already in full form or global settings
                             
                             # Call the centralized function
-                            calculated_results = calculate_estimate_details(
+                            calculated_results = helpers.calculate_estimate_details(
                                 edf_items_list=edited_est.to_dict(orient="records"),
                                 days=s_days,
                                 margins=am_for_calc,
@@ -307,7 +307,7 @@ with tab1:
                             
                             st.write("#### 📥 Download Bills")
                             c_pdf1, c_pdf2 = st.columns(2)
-                            pdf_client = create_pdf(client['name'], edited_est_with_prices.to_dict(orient="records"), s_days, labor_charged_display, rounded_grand_total, advance_amount)
+                            pdf_client = helpers.create_pdf(client['name'], edited_est_with_prices.to_dict(orient="records"), s_days, labor_charged_display, rounded_grand_total, advance_amount)
                             c_pdf1.download_button("📄 Client Invoice", pdf_client, f"Invoice_{client['name']}.pdf", "application/pdf", key=f"pdf_c_{client['id']}")
                             st.write("#### Internal Profit Analysis")
                             if client.get('status') == "Work Done":
@@ -676,18 +676,23 @@ with tab5:
             with st.form("record_purchase_form"):
                 try:
                     suppliers_response = supabase.table("suppliers").select("id, name").order("name").execute()
+                    if suppliers_response and suppliers_response.data:
+                        supplier_options = {s['name']: s['id'] for s in suppliers_response.data}
+                    else:
+                        supplier_options = {}
                 except Exception as e:
                     st.error(f"Database Error: {e}")
                     suppliers_response = None
                 try:
                     inventory_response = supabase.table("inventory").select("item_name, base_rate").order("item_name").execute()
+                    if inventory_response and inventory_response.data:
+                        inventory_options = {i['item_name']: i for i in inventory_response.data}
+                    else:
+                        inventory_options = {}
                 except Exception as e:
                     st.error(f"Database Error: {e}")
                     inventory_response = None
         
-                supplier_options = {s['name']: s['id'] for s in suppliers_response.data} if suppliers_response and suppliers_response.data else {}
-                inventory_options = {i['item_name']: i for i in inventory_response.data} if inventory_response and inventory_response.data else {}
-                
                 if not supplier_options:
                     st.warning("Please add a supplier in the 'Directory' section first.")
                 if not inventory_options:
@@ -932,4 +937,3 @@ with tab6:
     except Exception as e:
         st.error(f"An error occurred during Profit & Loss analysis: {e}")
         st.info("Please ensure the database connection is active and data is correctly formatted.")
-
