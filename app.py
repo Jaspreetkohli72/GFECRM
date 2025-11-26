@@ -360,6 +360,14 @@ with tab1:
                                                     "Total Price": st.column_config.NumberColumn(disabled=True),
                                                     "Unit": st.column_config.SelectboxColumn("Unit", options=["each", "m", "cm", "ft", "in"], required=True)
                                                 })
+
+                    # Replace NaN values that can occur when adding new rows
+                    edited_est.fillna({
+                        'Total Price': 0.0, 'Base Rate': 0.0, 'Qty': 0.0, 'Unit Price': 0.0
+                    }, inplace=True)
+                    edited_est['Unit'] = edited_est['Unit'].fillna('each')
+                    edited_est['unit_type'] = edited_est['unit_type'].fillna('each')
+                    edited_est['Item'] = edited_est['Item'].fillna('')
                     
                     def calc_total_price(row):
                         if row.get('unit_type') == 'per_meter':
@@ -564,6 +572,14 @@ with tab3:
                         required=True,
                     )
                 })
+
+            # Replace NaN values that can occur when adding new rows
+            edf.fillna({
+                'Total Price': 0.0, 'Base Rate': 0.0, 'Qty': 0.0
+            }, inplace=True)
+            edf['Unit'] = edf['Unit'].fillna('each')
+            edf['unit_type'] = edf['unit_type'].fillna('each')
+            edf['Item'] = edf['Item'].fillna('')
             
             cit = edf.to_dict(orient="records")
             mt = edf["Total Price"].sum()
