@@ -322,7 +322,7 @@ with tab1:
                     raw_grand_total = mat_sell + labor_actual_cost
                     rounded_grand_total = math.ceil(raw_grand_total / 100) * 100
                     total_profit = rounded_grand_total - total_base_cost
-                    advance_amount = total_base_cost + (total_profit * 0.10)
+                    advance_amount = math.ceil((total_base_cost + (total_profit * 0.10)) / 100) * 100
                     labor_charged_display = labor_actual_cost + (rounded_grand_total - raw_grand_total)
                     
                     m1, m2, m3, m4, m5 = st.columns(5)
@@ -420,7 +420,7 @@ with tab3:
                     "Total Price": st.column_config.NumberColumn("Total Price", width="small", disabled=True)
                 })
             
-            # --- Universal Calculation Logic ---
+            # --- Recalculation Logic ---
             CONVERSIONS = {'pcs': 1.0, 'each': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
             mm = 1 + (am.get('part_margin', 0)/100) + (am.get('labor_margin', 0)/100) + (am.get('extra_margin', 0)/100)
 
@@ -449,7 +449,7 @@ with tab3:
             raw_gt = mt + raw_lt
             rounded_gt = math.ceil(raw_gt / 100) * 100
             total_profit = rounded_gt - total_base_cost
-            advance_amount = total_base_cost + (total_profit * 0.10)
+            advance_amount = math.ceil((total_base_cost + (total_profit * 0.10)) / 100) * 100
             disp_lt = raw_lt + (rounded_gt - raw_gt)
             
             st.divider()
