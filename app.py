@@ -221,7 +221,7 @@ if st.sidebar.button("Logout"):
 
 if not supabase: st.stop()
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "⚙️ Settings", "🚚 Suppliers"])
+tab1, tab2, tab3, tab5, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "🚚 Suppliers", "⚙️ Settings"])
 
 # --- TAB 1: DASHBOARD ---
 with tab1:
