@@ -242,7 +242,7 @@ with tab1:
             c1, c2 = st.columns([1.5, 1])
             with c1:
                 st.write("**Edit Details**")
-                loc = get_geolocation(key=f"geo_tab1_{client['id']}")
+                loc = get_geolocation(component_key=f"geo_tab1_{client['id']}")
                 gmaps = ""
                 if loc:
                     st.write(f"Detected: {loc['coords']['latitude']}, {loc['coords']['longitude']}")
@@ -253,14 +253,13 @@ with tab1:
                 with st.form("edit_details"):
                     nn, np, na = st.text_input("Name", value=client['name']), st.text_input("Phone", value=client.get('phone', '')), st.text_area("Address", value=client.get('address', ''))
                     maps_link_key = f"loc_in_dash_{client['id']}"
-                    current_maps_link = client.get('maps_link', '')
+                    current_maps_link = client.get('location', '') # Changed from maps_link to location
                     if maps_link_key in st.session_state:
                         current_maps_link = st.session_state[maps_link_key]
                     ml = st.text_input("Maps Link", value=current_maps_link, key=maps_link_key)
 
                     if st.form_submit_button("💾 Save Changes"):
-                        res = run_query(supabase.table("clients").update({"name": nn, "phone": np, "address": na, "maps_link": ml}).eq("id", client['id']))
-                        if res and res.data: st.success("Updated!"); time.sleep(0.5); st.rerun()
+                        res = run_query(supabase.table("clients").update({"name": nn, "phone": np, "address": na, "location": ml}).eq("id", client['id'])) # Changed from maps_link to location
             with c2:
                 st.write("**Project Status**")
                 opts = ["Estimate Given", "Order Received", "Work In Progress", "Work Done", "Closed"]
@@ -375,7 +374,7 @@ with tab1:
 with tab2:
     st.subheader("Add New Client")
     
-    loc_new_client = get_geolocation(key="geo_tab2_new_client")
+    loc_new_client = get_geolocation(component_key="geo_tab2_new_client")
     gmaps_new_client = ""
     if loc_new_client:
         st.write(f"Detected: {loc_new_client['coords']['latitude']}, {loc_new_client['coords']['longitude']}")
@@ -394,7 +393,7 @@ with tab2:
         ml_new_client = st.text_input("Google Maps Link", value=current_maps_link_new_client, key=maps_link_new_client_key)
         
         if st.form_submit_button("Create Client", type="primary"):
-            res = run_query(supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "maps_link": ml_new_client, "status": "Estimate Given", "created_at": datetime.now().isoformat()}))
+            res = run_query(supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "location": ml_new_client, "status": "Estimate Given", "created_at": datetime.now().isoformat()})) # Changed from maps_link to location
             if res and res.data: st.success(f"Client {nm} Added!"); time.sleep(1); st.rerun()
             else: st.error("Save Failed.")
 
