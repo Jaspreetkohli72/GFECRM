@@ -178,7 +178,6 @@ def create_internal_pdf(client_name, items, labor_days, labor_cost, labor_charge
     pdf.cell(0, 10, f"Client: {client_name} | Date: {datetime.now().strftime('%Y-%m-%d')}", ln=True)
     pdf.ln(5)
 
-    # Headers: Item | Qty | Base | Sell | Net Profit
     pdf.set_fill_color(220, 220, 220)
     pdf.set_font("Arial", 'B', 9)
     pdf.cell(70, 8, "Item Description", 1, 0, 'L', 1)
@@ -189,7 +188,6 @@ def create_internal_pdf(client_name, items, labor_days, labor_cost, labor_charge
 
     pdf.set_font("Arial", '', 9)
     for item in items:
-        # Handle data types safely
         qty = float(item.get('Qty', 0))
         base = float(item.get('Base Rate', 0))
         total_sell = float(item.get('Total Price', 0))
@@ -200,11 +198,10 @@ def create_internal_pdf(client_name, items, labor_days, labor_cost, labor_charge
         pdf.cell(15, 8, str(qty), 1, 0, 'C')
         pdf.cell(35, 8, f"{base:,.2f}", 1, 0, 'R')
         pdf.cell(35, 8, f"{unit_sell:,.2f}", 1, 0, 'R')
-        pdf.set_text_color(0, 150, 0) # Green
+        pdf.set_text_color(0, 150, 0)
         pdf.cell(35, 8, f"{row_profit:,.2f}", 1, 1, 'R')
-        pdf.set_text_color(0, 0, 0) # Reset
+        pdf.set_text_color(0, 0, 0)
 
-    # Labor Section
     labor_profit = labor_charged - labor_cost
     pdf.ln(5)
     pdf.set_font("Arial", 'B', 10)
@@ -212,12 +209,10 @@ def create_internal_pdf(client_name, items, labor_days, labor_cost, labor_charge
     pdf.cell(35, 8, f"Cost: {labor_cost:,.2f}", 1, 0, 'R')
     pdf.cell(35, 8, f"Chrg: {labor_charged:,.2f}", 1, 1, 'R')
 
-    # Grand Totals
     pdf.ln(10)
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(120, 10, "TOTAL REVENUE:", 1, 0, 'R')
     pdf.cell(70, 10, f"Rs. {grand_total:,.2f}", 1, 1, 'R')
-    
     pdf.cell(120, 10, "NET PROFIT:", 1, 0, 'R')
     pdf.set_text_color(0, 150, 0)
     pdf.cell(70, 10, f"Rs. {total_profit:,.2f}", 1, 1, 'R')
@@ -271,21 +266,14 @@ with tab1:
                         st.rerun()
 
                 with st.form("edit_details"):
-                    nn = st.text_input("Name", value=client['name'])
-                    np = st.text_input("Phone", value=client.get('phone', ''))
-                    na = st.text_area("Address", value=client.get('address', ''))
-                    if loc_input_key not in st.session_state:
-                        st.session_state[loc_input_key] = client.get('location', '')
+                    nn, np, na = st.text_input("Name", value=client['name']), st.text_input("Phone", value=client.get('phone', '')), st.text_area("Address", value=client.get('address', ''))
+                    if loc_input_key not in st.session_state: st.session_state[loc_input_key] = client.get('location', '')
                     nl = st.text_input("Maps Link", key=loc_input_key)
                     
                     if st.form_submit_button("💾 Save Changes"):
-                        res = run_query(supabase.table("clients").update({
-                            "name": nn, "phone": np, "address": na, "location": nl
-                        }).eq("id", client['id']))
-                        if res and res.data:
-                            st.success("Updated!"); time.sleep(0.5); st.rerun()
-                if client.get('location'):
-                    st.link_button("🚀 Navigate to Site", client['location'])
+                        res = run_query(supabase.table("clients").update({"name": nn, "phone": np, "address": na, "location": nl}).eq("id", client['id']))
+                        if res and res.data: st.success("Updated!"); time.sleep(0.5); st.rerun()
+                if client.get('location'): st.link_button("🚀 Navigate to Site", client['location'])
 
             with c2:
                 st.write("**Project Status**")
@@ -303,8 +291,7 @@ with tab1:
                     upd = {"status": n_stat}
                     if s_date: upd["start_date"] = s_date.isoformat()
                     res = run_query(supabase.table("clients").update(upd).eq("id", client['id']))
-                    if res and res.data:
-                        st.success("Status Saved!"); time.sleep(0.5); st.rerun()
+                    if res and res.data: st.success("Status Saved!"); time.sleep(0.5); st.rerun()
                         
                 with st.expander("Danger Zone"):
                     if st.button("Delete Client", key=f"del_{client['id']}"):
@@ -321,24 +308,24 @@ with tab1:
                 
                 if s_items:
                     idf = pd.DataFrame(s_items)
-                    for col in ["Total Price", "Base Rate", "Qty", "Unit Price"]:
+                    for col in ["Total Price", "Base Rate", "Qty"]:
                         if col not in idf.columns: idf[col] = 0.0
                     for col in ["Unit", "Item"]:
                         if col not in idf.columns: idf[col] = ""
                     
-                    idf['Unit Price'] = idf.apply(lambda row: row['Total Price'] / row['Qty'] if row['Qty'] != 0 else 0, axis=1)
+                    idf["Unit Price (Calc)"] = idf.apply(lambda row: row['Total Price'] / row['Qty'] if row['Qty'] != 0 else 0, axis=1)
                     
                     edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}",
                                                 column_config={
                                                     "Item": st.column_config.Column(width="large"),
-                                                    "Qty": st.column_config.NumberColumn(width="small"),
+                                                    "Qty": st.column_config.NumberColumn(width="small", step=1),
                                                     "Unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "cm", "in", "ft"], width="small", required=True),
                                                     "Base Rate": st.column_config.NumberColumn(width="small"),
-                                                    "Unit Price": None,
+                                                    "Unit Price (Calc)": st.column_config.NumberColumn("Unit Price", width="small", disabled=True),
                                                     "Total Price": st.column_config.NumberColumn(width="small", disabled=True)
                                                 })
                     
-                    edited_est['Total Price'] = pd.to_numeric(edited_est['Unit Price']) * pd.to_numeric(edited_est['Qty'])
+                    edited_est['Total Price'] = pd.to_numeric(edited_est["Unit Price (Calc)"]) * pd.to_numeric(edited_est['Qty'])
                     
                     gs = get_settings()
                     mat_sell = edited_est['Total Price'].sum()
@@ -350,7 +337,6 @@ with tab1:
                     rounded_grand_total = math.ceil(raw_grand_total / 100) * 100
                     total_profit = rounded_grand_total - total_base_cost
                     advance_amount = total_base_cost + (total_profit * 0.10)
-                    
                     labor_charged_display = labor_actual_cost + (rounded_grand_total - raw_grand_total)
                     
                     m1, m2, m3, m4, m5 = st.columns(5)
@@ -362,11 +348,9 @@ with tab1:
                     
                     if st.button("💾 Save Changes", key=f"sv_{client['id']}"):
                         df_to_save = edited_est.copy()
-                        for col in ['Qty', 'Base Rate', 'Total Price', 'Unit Price']:
+                        for col in ['Qty', 'Base Rate', 'Total Price', "Unit Price (Calc)"]:
                             df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
-                        for col in ['Item', 'Unit']:
-                            df_to_save[col] = df_to_save[col].fillna("")
-
+                        for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
                         new_json = {"items": df_to_save.to_dict(orient="records"), "days": s_days, "margins": est_data.get('margins')}
                         run_query(supabase.table("clients").update({"internal_estimate": new_json}).eq("id", client['id']))
                         st.toast("Saved!", icon="✅")
@@ -375,7 +359,6 @@ with tab1:
                     c_pdf1, c_pdf2 = st.columns(2)
                     pdf_client = create_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_charged_display, rounded_grand_total, advance_amount)
                     c_pdf1.download_button("📄 Client Invoice", pdf_client, f"Invoice_{client['name']}.pdf", "application/pdf", key=f"pdf_c_{client['id']}")
-                    
                     if is_work_done:
                         pdf_internal = create_internal_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_actual_cost, labor_charged_display, rounded_grand_total, total_profit)
                         c_pdf2.download_button("💼 Internal Report", pdf_internal, f"Internal_{client['name']}.pdf", "application/pdf", key=f"pdf_i_{client['id']}")
@@ -447,8 +430,8 @@ with tab3:
                 c1, c2, c3 = st.columns([3, 1, 1])
                 inam = c1.selectbox("Item", list(imap.keys()))
                 iqty = c2.number_input("Qty", 1.0, step=1.0)
-                unit_options = ["pcs", "m", "cm", "in", "ft"]
-                default_unit = imap.get(inam, {}).get('Unit', 'pcs')
+                unit_options = ["pcs", "m", "ft", "cm", "in"]
+                default_unit = imap.get(inam, {}).get('unit', 'pcs')
                 unit_index = unit_options.index(default_unit) if default_unit in unit_options else 0
                 iunit = c3.selectbox("Unit", unit_options, index=unit_index)
                 if st.form_submit_button("⬇️ Add"):
@@ -463,14 +446,16 @@ with tab3:
                 if col not in df.columns: df[col] = 0.0
             if 'Unit' not in df.columns: df['Unit'] = ""
             df["Total Price"] = pd.to_numeric(df["Base Rate"]) * pd.to_numeric(df["Qty"]) * mm
+            df["Unit Price (Calc)"] = df["Total Price"] / pd.to_numeric(df["Qty"])
             
             st.write("#### Items")
             edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}", 
                 column_config={
                     "Item": st.column_config.Column(width="large"),
-                    "Qty": st.column_config.NumberColumn(width="small"),
-                    "Unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "cm", "in", "ft"], width="small", required=True),
+                    "Qty": st.column_config.NumberColumn(width="small", step=1),
+                    "Unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "ft", "cm", "in"], width="small", required=True),
                     "Base Rate": st.column_config.NumberColumn(width="small"),
+                    "Unit Price (Calc)": st.column_config.NumberColumn("Unit Price", width="small", disabled=True),
                     "Total Price": st.column_config.NumberColumn(width="small", disabled=True)
                 })
             
@@ -496,10 +481,9 @@ with tab3:
             cs, cp = st.columns(2)
             if cs.button("💾 Save", type="primary"):
                 df_to_save = edf.copy()
-                for col in ['Qty', 'Base Rate', 'Total Price']:
+                for col in ['Qty', 'Base Rate', 'Total Price', "Unit Price (Calc)"]:
                     df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
-                for col in ['Item', 'Unit']:
-                    df_to_save[col] = df_to_save[col].fillna("")
+                for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
                 cit = df_to_save.to_dict(orient="records")
 
                 sobj = {"items": cit, "days": dys, "margins": {'p': am['part_margin'], 'l': am['labor_margin'], 'e': am['extra_margin']} if uc else None}
@@ -526,25 +510,22 @@ with tab4:
     with st.form("inv_add"):
         c1, c2, c3 = st.columns([2, 1, 1])
         new_item, rate = c1.text_input("Item Name"), c2.number_input("Rate", min_value=0.0)
-        unit = c3.selectbox("Unit", ["pcs", "m", "cm", "in", "ft"])
+        unit = c3.selectbox("Unit", ['pcs', 'm', 'ft', 'cm', 'in'])
         if st.form_submit_button("Add Item"):
-            if run_query(supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate, "Unit": unit})):
+            if run_query(supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate, "unit": unit})):
                 st.success("Added"); st.rerun()
     
     inv_resp = run_query(supabase.table("inventory").select("*").order("item_name"))
     if inv_resp and inv_resp.data:
         inv_df = pd.DataFrame(inv_resp.data)
-        if 'Unit' not in inv_df.columns: inv_df['Unit'] = "pcs"
-        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit",
-                                    column_config={
-                                        "Unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "cm", "in", "ft"], required=True)
-                                    })
+        if 'unit' not in inv_df.columns: inv_df['unit'] = "pcs"
+        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit")
         
         if st.button("💾 Save Inventory Changes"):
             df_to_save = edited_inv.copy()
             df_to_save['base_rate'] = pd.to_numeric(df_to_save['base_rate'].fillna(0))
             df_to_save['item_name'] = df_to_save['item_name'].fillna("")
-            df_to_save['Unit'] = df_to_save['Unit'].fillna("")
+            df_to_save['unit'] = df_to_save['unit'].fillna("")
             recs = df_to_save.to_dict(orient="records")
 
             errors = 0
