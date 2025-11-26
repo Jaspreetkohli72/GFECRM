@@ -229,7 +229,7 @@ if top_c2.button("Log Out", type="secondary"):
     st.rerun()
 st.divider()
 
-tab1, tab2, tab3, tab5, tab4, tab6 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "🚚 Suppliers", "⚙️ Settings", "📈 P&L"])
+tab1, tab2, tab3, tab5, tab6, tab4 = st.tabs(["📋 Dashboard", "➕ New Client", "🧮 Estimator", "🚚 Suppliers", "📈 P&L", "⚙️ Settings"])
 
 # --- TAB 1: DASHBOARD ---
 with tab1:
