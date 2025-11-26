@@ -718,34 +718,34 @@ with tab5:
                                 st.error(f"Database Error: {e}")
                                 res_purchase = None
 
-                                                    if res_purchase and res_purchase.data:
-                                                        try:
-                                                            supabase.rpc(
-                                                                "increment_stock",
-                                                                {
-                                                                    "item_name_param": selected_item_name,
-                                                                    "increment_by_param": purchase_qty
-                                                                }
-                                                            ).execute()
-                                                        except Exception as e:
-                                                            st.error(f"Database Error: {e}")
-                                                            res_stock_update = None
-                                                        
-                                                        if update_inventory_base_rate:
-                                                            try:
-                                                                res_inventory = supabase.table("inventory").update({"base_rate": purchase_rate}).eq("item_name", selected_item_name).execute()
-                                                                if res_inventory and res_inventory.data:
-                                                                    st.success("Purchase Recorded, Stock & Inventory Updated!")
-                                                                    time.sleep(0.5); st.rerun()
-                                                                else:
-                                                                    st.error("Purchase Recorded, Stock Updated, but failed to update Inventory Base Rate.")
-                                                            except Exception as e:
-                                                                st.error(f"Database Error: {e}")
-                                                        else:
-                                                            st.success("Purchase Recorded & Stock Updated!")
-                                                            time.sleep(0.5); st.rerun()
-                                                    else:
-                                                        st.error("Failed to record purchase.")                        else:
+                            if res_purchase and res_purchase.data:
+                                try:
+                                    supabase.rpc(
+                                        "increment_stock",
+                                        {
+                                            "item_name_param": selected_item_name,
+                                            "increment_by_param": purchase_qty
+                                        }
+                                    ).execute()
+                                except Exception as e:
+                                    st.error(f"Database Error: {e}")
+                                
+                                if update_inventory_base_rate:
+                                    try:
+                                        res_inventory = supabase.table("inventory").update({"base_rate": purchase_rate}).eq("item_name", selected_item_name).execute()
+                                        if res_inventory and res_inventory.data:
+                                            st.success("Purchase Recorded, Stock & Inventory Updated!")
+                                            st.rerun()
+                                        else:
+                                            st.error("Purchase Recorded, Stock Updated, but failed to update Inventory Base Rate.")
+                                    except Exception as e:
+                                        st.error(f"Database Error: {e}")
+                                else:
+                                    st.success("Purchase Recorded & Stock Updated!")
+                                    st.rerun()
+                            else:
+                                st.error("Failed to record purchase.")
+                        else:
                             st.warning("Please fill all required fields and ensure quantity is > 0.")
         
         
