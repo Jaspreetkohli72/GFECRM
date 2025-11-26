@@ -114,7 +114,7 @@ def get_settings():
     return defaults
 
 # --- PROFESSIONAL PDF GENERATOR ---
-def create_pdf(client_name, items, labor_days, labor_total, grand_total):
+def create_pdf(client_name, items, labor_days, labor_total, grand_total, advance_amount):
     pdf = FPDF()
     pdf.add_page()
     
@@ -136,16 +136,18 @@ def create_pdf(client_name, items, labor_days, labor_total, grand_total):
     # Table Header
     pdf.set_fill_color(240, 240, 240)
     pdf.set_font("Arial", 'B', 10)
-    pdf.cell(110, 10, "Description", 1, 0, 'L', 1)
-    pdf.cell(20, 10, "Qty", 1, 0, 'C', 1)
+    pdf.cell(100, 10, "Description", 1, 0, 'L', 1)
+    pdf.cell(15, 10, "Qty", 1, 0, 'C', 1)
+    pdf.cell(15, 10, "Unit", 1, 0, 'C', 1)
     pdf.cell(60, 10, "Amount (INR)", 1, 1, 'R', 1)
     
     # Rows
     pdf.set_font("Arial", '', 10)
     for item in items:
-        pdf.cell(110, 8, str(item['Item']), 1)
-        pdf.cell(20, 8, str(item['Qty']), 1, 0, 'C')
-        pdf.cell(60, 8, f"{item['Total Price']:,.2f}", 1, 1, 'R')
+        pdf.cell(100, 8, str(item.get('Item', '')), 1)
+        pdf.cell(15, 8, str(item.get('Qty', 0)), 1, 0, 'C')
+        pdf.cell(15, 8, str(item.get('Unit', '')), 1, 0, 'C')
+        pdf.cell(60, 8, f"{item.get('Total Price', 0):,.2f}", 1, 1, 'R')
         
     # Totals
     pdf.set_font("Arial", '', 10)
@@ -157,7 +159,10 @@ def create_pdf(client_name, items, labor_days, labor_total, grand_total):
     pdf.cell(60, 10, f"Rs. {grand_total:,.2f}", 1, 1, 'R')
     
     # Footer Disclaimer
-    pdf.ln(20)
+    pdf.ln(10)
+    pdf.set_font("Arial", 'B', 10)
+    pdf.multi_cell(0, 5, f"Advance Required to Start: Rs. {advance_amount:,.2f}")
+    pdf.ln(5)
     pdf.set_font("Arial", 'I', 8)
     pdf.set_text_color(100, 100, 100)
     pdf.multi_cell(0, 5, "NOTE: This is an estimate only. Final rates may vary based on actual site conditions and market fluctuations. Valid for 7 days.")
@@ -272,7 +277,6 @@ with tab1:
                     np = st.text_input("Phone", value=client.get('phone', ''))
                     na = st.text_area("Address", value=client.get('address', ''))
                     
-                    # Bind to session state
                     if loc_input_key not in st.session_state:
                         st.session_state[loc_input_key] = client.get('location', '')
                     nl = st.text_input("Maps Link", key=loc_input_key)
@@ -309,7 +313,6 @@ with tab1:
                         time.sleep(0.5)
                         st.rerun()
                         
-                # Delete Button
                 with st.expander("Danger Zone"):
                     if st.button("Delete Client", key=f"del_{client['id']}"):
                         run_query(supabase.table("clients").delete().eq("id", client['id']))
@@ -328,124 +331,84 @@ with tab1:
                 est_data = client['internal_estimate']
                 s_items = est_data.get('items', []) if isinstance(est_data, dict) else (est_data if isinstance(est_data, list) else [])
                 s_days = est_data.get('days', 1.0) if isinstance(est_data, dict) else 1.0
-                s_margins = est_data.get('margins') if isinstance(est_data, dict) else None
                 
                 if s_items:
                     idf = pd.DataFrame(s_items)
-                    if "Total Price" not in idf.columns: idf["Total Price"] = 0.0
-                    if "Base Rate" not in idf.columns: idf["Base Rate"] = 0.0
-                    if "Qty" not in idf.columns: idf["Qty"] = 1.0
-                    if "Unit" not in idf.columns: idf["Unit"] = "each"
-                    if "unit_type" not in idf.columns: idf["unit_type"] = "each"
-
-                    CONVERSIONS = {"m": 1.0, "cm": 0.01, "ft": 0.3048, "in": 0.0254, "each": 1.0}
-
-                    def get_unit_price(row):
-                        mm = 1.0
-                        if s_margins:
-                            mm = 1 + (s_margins.get('p', 0)/100) + (s_margins.get('l', 0)/100) + (s_margins.get('e', 0)/100)
-                        
-                        if row.get('unit_type') == 'per_meter':
-                            return row['Base Rate'] * mm # Price per meter
-                        else: # each
-                            return row['Total Price'] / row['Qty'] if row['Qty'] != 0 else 0
+                    for col in ["Total Price", "Base Rate", "Qty", "Unit Price"]:
+                        if col not in idf.columns: idf[col] = 0.0
+                    if 'Unit' not in idf.columns: idf['Unit'] = ""
+                    if 'Item' not in idf.columns: idf['Item'] = ""
                     
-                    idf['Unit Price'] = idf.apply(get_unit_price, axis=1)
-
-                    # Editable Grid
+                    idf['Unit Price'] = idf.apply(lambda row: row['Total Price'] / row['Qty'] if row['Qty'] != 0 else 0, axis=1)
+                    
                     edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}",
-                                                column_config={
-                                                    "unit_type": None,
-                                                    "Unit Price": None, 
-                                                    "Total Price": st.column_config.NumberColumn(disabled=True),
-                                                    "Unit": st.column_config.SelectboxColumn("Unit", options=["each", "m", "cm", "ft", "in"], required=True)
-                                                })
-
-                    # Replace NaN values that can occur when adding new rows
-                    edited_est.fillna({
-                        'Total Price': 0.0, 'Base Rate': 0.0, 'Qty': 0.0, 'Unit Price': 0.0
-                    }, inplace=True)
-                    edited_est['Unit'] = edited_est['Unit'].fillna('each')
-                    edited_est['unit_type'] = edited_est['unit_type'].fillna('each')
-                    edited_est['Item'] = edited_est['Item'].fillna('')
+                                                column_config={"Unit Price": None, "Total Price": st.column_config.NumberColumn(disabled=True)})
                     
-                    def calc_total_price(row):
-                        if row.get('unit_type') == 'per_meter':
-                            conversion_factor = CONVERSIONS.get(row['Unit'], 1.0)
-                            return row['Unit Price'] * float(row['Qty']) * conversion_factor
-                        else:
-                            return row['Unit Price'] * float(row['Qty'])
+                    edited_est['Qty'] = pd.to_numeric(edited_est['Qty'].fillna(0))
+                    edited_est['Base Rate'] = pd.to_numeric(edited_est['Base Rate'].fillna(0))
+                    edited_est['Unit Price'] = pd.to_numeric(edited_est['Unit Price'].fillna(0))
+                    edited_est['Item'] = edited_est['Item'].fillna("")
+                    edited_est['Unit'] = edited_est['Unit'].fillna("")
 
-                    # Recalculate Total Price after edits
-                    edited_est['Total Price'] = edited_est.apply(calc_total_price, axis=1)
+                    edited_est['Total Price'] = edited_est['Unit Price'] * edited_est['Qty']
                     
-                    # --- CALCULATIONS ---
                     gs = get_settings()
-                    
-                    # 1. Material
                     mat_sell = edited_est['Total Price'].sum()
-                    mat_cost = (edited_est['Base Rate'] * edited_est['Qty']).sum()
-                    
-                    # 2. Labor
                     daily_cost = float(gs.get('daily_labor_cost', 1000))
                     labor_actual_cost = float(s_days) * daily_cost
                     
-                    # 3. Grand Total & Rounding
+                    total_base_cost = (edited_est['Base Rate'] * edited_est['Qty']).sum() + labor_actual_cost
                     raw_grand_total = mat_sell + labor_actual_cost
                     rounded_grand_total = math.ceil(raw_grand_total / 100) * 100
-                    rounding_profit = rounded_grand_total - raw_grand_total
+                    total_profit = rounded_grand_total - total_base_cost
+                    advance_amount = total_base_cost + (total_profit * 0.10)
                     
-                    # 4. Displayed Labor (Hides rounding profit)
+                    rounding_profit = rounded_grand_total - raw_grand_total
                     labor_charged_display = labor_actual_cost + rounding_profit
                     
-                    # 5. Total Profit
-                    total_profit = (mat_sell - mat_cost) + rounding_profit # Labor is pass-through + rounding
-                    
-                    # UI Metrics
-                    m1, m2, m3 = st.columns(3)
+                    m1, m2, m3, m4 = st.columns(4)
                     m1.metric("Material Total", f"₹{mat_sell:,.0f}")
                     m2.metric("Labor + Rounding", f"₹{labor_charged_display:,.0f}")
                     m3.metric("Grand Total", f"₹{rounded_grand_total:,.0f}")
+                    m4.metric("Projected Profit", f"₹{total_profit:,.0f}")
                     
-                    # Save Button
                     if st.button("💾 Save Changes", key=f"sv_{client['id']}"):
+                        # NaN Fix
+                        edited_est['Qty'] = edited_est['Qty'].fillna(0)
+                        edited_est['Base Rate'] = edited_est['Base Rate'].fillna(0)
+                        edited_est['Item'] = edited_est['Item'].fillna("")
+                        edited_est['Unit'] = edited_est['Unit'].fillna("")
+                        
                         new_json = {
                             "items": edited_est.to_dict(orient="records"),
                             "days": s_days,
-                            "margins": s_margins
+                            "margins": est_data.get('margins')
                         }
                         run_query(supabase.table("clients").update({"internal_estimate": new_json}).eq("id", client['id']))
                         st.toast("Saved!", icon="✅")
                     
-                    # PDF Generation
                     st.write("#### 📥 Download Bills")
                     c_pdf1, c_pdf2 = st.columns(2)
                     
-                    # 1. Client Bill (Clean)
-                    pdf_client = create_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_charged_display, rounded_grand_total)
+                    pdf_client = create_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_charged_display, rounded_grand_total, advance_amount)
                     c_pdf1.download_button("📄 Client Invoice", pdf_client, f"Invoice_{client['name']}.pdf", "application/pdf", key=f"pdf_c_{client['id']}")
                     
-                    # 2. Internal Bill (Detailed) - ONLY if Work Done
                     if is_work_done:
-                        pdf_internal = create_internal_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_actual_cost, labor_charged_display, rounded_grand_total, total_profit)
+                        internal_profit = rounded_grand_total - total_base_cost
+                        pdf_internal = create_internal_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_actual_cost, labor_charged_display, rounded_grand_total, internal_profit)
                         c_pdf2.download_button("💼 Internal Report (With Profit)", pdf_internal, f"Internal_{client['name']}.pdf", "application/pdf", key=f"pdf_i_{client['id']}")
                     else:
                         c_pdf2.info("Mark status as 'Work Done' to generate Internal Profit Report.")
-                        
                 else:
                     st.warning("Estimate Empty")
 
 # --- TAB 2: NEW CLIENT ---
 with tab2:
     st.subheader("Add New Client")
-    
-    # --- MANUAL GPS LOGIC (NEW CLIENT) ---
     st.info("To add location: Wait for GPS scan -> Click 'Paste'")
     gps_new = get_geolocation(component_key="gps_new_client")
-    
     if gps_new:
-        lat = gps_new['coords']['latitude']
-        lng = gps_new['coords']['longitude']
+        lat, lng = gps_new['coords']['latitude'], gps_new['coords']['longitude']
         st.caption(f"Signal Found: {lat:.4f}, {lng:.4f}")
         if st.button("⬇️ Paste to Form", key="paste_new"):
             st.session_state['new_client_loc'] = f"http://googleusercontent.com/maps.google.com/?q={lat},{lng}"
@@ -453,11 +416,8 @@ with tab2:
 
     with st.form("new_client"):
         c1, c2 = st.columns(2)
-        nm = c1.text_input("Client Name")
-        ph = c2.text_input("Phone")
+        nm, ph = c1.text_input("Client Name"), c2.text_input("Phone")
         ad = st.text_area("Address")
-        
-        # Load from session if pasted, else empty
         val_loc = st.session_state.get('new_client_loc', "")
         lo = st.text_input("Google Maps Link", value=val_loc)
         
@@ -469,10 +429,8 @@ with tab2:
             if res and res.data:
                 st.success(f"Client {nm} Added!")
                 if 'new_client_loc' in st.session_state: del st.session_state['new_client_loc']
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("Save Failed.")
+                time.sleep(1); st.rerun()
+            else: st.error("Save Failed.")
 
 # --- TAB 3: ESTIMATOR ---
 with tab3:
@@ -483,27 +441,22 @@ with tab3:
     
     if tn:
         tc = cd[tn]
-        se = tc.get('internal_estimate')
-        li = se.get('items', []) if isinstance(se, dict) else (se if isinstance(se, list) else [])
-        sm = se.get('margins') if isinstance(se, dict) else None
-        sd = se.get('days', 1.0) if isinstance(se, dict) else 1.0
+        se, li = tc.get('internal_estimate'), []
+        if se: li = se.get('items', [])
+        sm = se.get('margins') if se else None
+        sd = se.get('days', 1.0) if se else 1.0
         ssk = f"est_{tc['id']}"
         if ssk not in st.session_state: st.session_state[ssk] = li
 
         st.divider()
         gs = get_settings()
         uc = st.checkbox("🛠️ Use Custom Margins", value=(sm is not None), key="cm")
+        am = gs
         if uc:
-            dp = int(sm['p']) if sm else int(gs['part_margin'])
-            dl = int(sm['l']) if sm else int(gs['labor_margin'])
-            de = int(sm['e']) if sm else int(gs['extra_margin'])
+            dp, dl, de = (int(sm['p']), int(sm['l']), int(sm['e'])) if sm else (int(gs['part_margin']), int(gs['labor_margin']), int(gs['extra_margin']))
             mc1, mc2, mc3 = st.columns(3)
-            cp = mc1.slider("Part %", 0, 100, dp, key="cp")
-            cl = mc2.slider("Labor %", 0, 100, dl, key="cl")
-            ce = mc3.slider("Extra %", 0, 100, de, key="ce")
+            cp, cl, ce = mc1.slider("Part %", 0, 100, dp, key="cp"), mc2.slider("Labor %", 0, 100, dl, key="cl"), mc3.slider("Extra %", 0, 100, de, key="ce")
             am = {'part_margin': cp, 'labor_margin': cl, 'extra_margin': ce}
-        else:
-            am = gs
         dys = st.slider("⏳ Days", 0.5, 30.0, float(sd), 0.5)
 
         st.divider()
@@ -513,95 +466,52 @@ with tab3:
             with st.form("add_est"):
                 c1, c2, c3 = st.columns([3, 1, 1])
                 inam = c1.selectbox("Item", list(imap.keys()))
-                
-                selected_item = imap.get(inam)
-                is_per_meter = selected_item and selected_item.get('unit_type') == 'per_meter'
-
-                if is_per_meter:
-                    length = c2.number_input("Length", 1.0, step=0.5)
-                    unit = c3.selectbox("Unit", ["m", "cm", "ft", "in"])
-                else:
-                    iqty = c2.number_input("Qty", 1.0, step=1.0)
-
+                iqty = c2.number_input("Qty", 1.0, step=0.5)
+                iunit = c3.text_input("Unit", value=imap.get(inam, {}).get('Unit', 'Pcs'))
                 if st.form_submit_button("⬇️ Add"):
-                    item_to_add = {
-                        "Item": inam, 
-                        "Base Rate": selected_item['base_rate'],
-                        "unit_type": selected_item.get('unit_type', 'each')
-                    }
-                    if is_per_meter:
-                        item_to_add["Qty"] = length
-                        item_to_add["Unit"] = unit
-                    else:
-                        item_to_add["Qty"] = iqty
-                        item_to_add["Unit"] = "each"
-                    st.session_state[ssk].append(item_to_add)
+                    selected_item = imap.get(inam, {})
+                    st.session_state[ssk].append({"Item": inam, "Qty": iqty, "Base Rate": selected_item.get('base_rate', 0), "Unit": iunit})
                     st.rerun()
 
         if st.session_state[ssk]:
-            CONVERSIONS = {"m": 1.0, "cm": 0.01, "ft": 0.3048, "in": 0.0254, "each": 1.0}
             mm = 1 + (am['part_margin']/100) + (am['labor_margin']/100) + (am['extra_margin']/100)
-            
             df = pd.DataFrame(st.session_state[ssk])
-            if "Qty" not in df.columns: df["Qty"] = 1.0
-            if "Base Rate" not in df.columns: df["Base Rate"] = 0.0
-            if "Unit" not in df.columns: df["Unit"] = "each"
-            if "unit_type" not in df.columns: df["unit_type"] = "each"
-
-            def calculate_total_price(row):
-                base_rate = float(row['Base Rate'])
-                qty = float(row['Qty'])
-                if row['unit_type'] == 'per_meter':
-                    conversion_factor = CONVERSIONS.get(row['Unit'], 1.0)
-                    return base_rate * (qty * conversion_factor) * mm
-                else: # 'each'
-                    return base_rate * qty * mm
-
-            df["Total Price"] = df.apply(calculate_total_price, axis=1)
+            for col in ["Qty", "Base Rate"]:
+                if col not in df.columns: df[col] = 0.0
+            if 'Unit' not in df.columns: df['Unit'] = ""
+            df["Total Price"] = pd.to_numeric(df["Base Rate"]) * pd.to_numeric(df["Qty"]) * mm
             
             st.write("#### Items")
-            edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}",
-                column_config={
-                    "Item": st.column_config.TextColumn(disabled=True), 
-                    "Base Rate": st.column_config.NumberColumn(disabled=True, format="₹%.2f"), 
-                    "Total Price": st.column_config.NumberColumn(disabled=True, format="₹%.2f"),
-                    "unit_type": None, # Hide
-                    "Unit": st.column_config.SelectboxColumn(
-                        "Unit",
-                        options=["each", "m", "cm", "ft", "in"],
-                        required=True,
-                    )
-                })
-
-            # Replace NaN values that can occur when adding new rows
-            edf.fillna({
-                'Total Price': 0.0, 'Base Rate': 0.0, 'Qty': 0.0
-            }, inplace=True)
-            edf['Unit'] = edf['Unit'].fillna('each')
-            edf['unit_type'] = edf['unit_type'].fillna('each')
-            edf['Item'] = edf['Item'].fillna('')
+            edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}", column_config={"Total Price": st.column_config.NumberColumn(disabled=True)})
             
-            cit = edf.to_dict(orient="records")
-            mt = edf["Total Price"].sum()
-            raw_lt = dys * float(gs.get('daily_labor_cost', 1000))
+            mt = pd.to_numeric(edf["Total Price"]).sum()
+            daily_cost = float(gs.get('daily_labor_cost', 1000))
+            raw_lt = dys * daily_cost
+            
+            total_base_cost = (pd.to_numeric(edf["Base Rate"]) * pd.to_numeric(edf["Qty"])).sum() + raw_lt
             raw_gt = mt + raw_lt
             rounded_gt = math.ceil(raw_gt / 100) * 100
+            total_profit = rounded_gt - total_base_cost
+            advance_amount = total_base_cost + (total_profit * 0.10)
             delta = rounded_gt - raw_gt
             disp_lt = raw_lt + delta
             
             st.divider()
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3, c4 = st.columns(4)
             c1.metric("Material", f"₹{mt:,.0f}")
             c2.metric("Labor", f"₹{disp_lt:,.0f}", help=f"Includes Rounding: +₹{delta:.0f}")
             c3.metric("Grand Total", f"₹{rounded_gt:,.0f}")
+            c4.metric("Projected Profit", f"₹{total_profit:,.0f}")
             
             cs, cp = st.columns(2)
             if cs.button("💾 Save", type="primary"):
+                edf['Qty'] = edf['Qty'].fillna(0); edf['Base Rate'] = edf['Base Rate'].fillna(0); edf['Item'] = edf['Item'].fillna(""); edf['Unit'] = edf['Unit'].fillna("")
+                cit = edf.to_dict(orient="records")
                 sobj = {"items": cit, "days": dys, "margins": {'p': am['part_margin'], 'l': am['labor_margin'], 'e': am['extra_margin']} if uc else None}
                 res = run_query(supabase.table("clients").update({"internal_estimate": sobj}).eq("id", tc['id']))
                 if res and res.data: st.toast("Saved!", icon="✅")
             
-            pbytes = create_pdf(tc['name'], cit, dys, disp_lt, rounded_gt)
+            pbytes = create_pdf(tc['name'], edf.to_dict(orient="records"), dys, disp_lt, rounded_gt, advance_amount)
             cp.download_button("📄 Download PDF", pbytes, f"Est_{tc['name']}.pdf", "application/pdf", key=f"pe_{tc['id']}")
 
 # --- TAB 4: SETTINGS ---
@@ -610,71 +520,42 @@ with tab4:
     s = get_settings()
     with st.form("glob_set"):
         c1, c2, c3 = st.columns(3)
-        p = c1.slider("Part %", 0, 100, int(s.get('part_margin', 15.0)))
-        l = c2.slider("Labor %", 0, 100, int(s.get('labor_margin', 20.0)))
-        e = c3.slider("Extra %", 0, 100, int(s.get('extra_margin', 5.0)))
+        p, l, e = c1.slider("Part %", 0, 100, int(s.get('part_margin', 15.0))), c2.slider("Labor %", 0, 100, int(s.get('labor_margin', 20.0))), c3.slider("Extra %", 0, 100, int(s.get('extra_margin', 5.0)))
         lc = st.number_input("Daily Labor (₹)", value=float(s.get('daily_labor_cost', 1000.0)), step=100.0)
-        
         if st.form_submit_button("Update Settings"):
-            run_query(supabase.table("settings").upsert({
-                "id": 1, "part_margin": p, "labor_margin": l, "extra_margin": e, "daily_labor_cost": lc
-            }))
-            st.success("Saved!")
-            st.cache_resource.clear()
-            time.sleep(1)
-            st.rerun()
+            run_query(supabase.table("settings").upsert({"id": 1, "part_margin": p, "labor_margin": l, "extra_margin": e, "daily_labor_cost": lc}))
+            st.success("Saved!"); st.cache_resource.clear(); time.sleep(1); st.rerun()
             
     st.divider()
     st.subheader("Inventory (Editable)")
-    
-    # 1. Add New Item
     with st.form("inv_add"):
         c1, c2, c3 = st.columns([2, 1, 1])
-        new_item = c1.text_input("Item Name")
-        rate = c2.number_input("Rate", min_value=0.0)
-        unit_type = c3.selectbox("Unit Type", ["each", "per_meter"])
+        new_item, rate, unit = c1.text_input("Item Name"), c2.number_input("Rate", min_value=0.0), c3.text_input("Unit", "Pcs")
         if st.form_submit_button("Add Item"):
-            if run_query(supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate, "unit_type": unit_type})):
-                st.success("Added")
-                st.rerun()
+            if run_query(supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate, "Unit": unit})):
+                st.success("Added"); st.rerun()
     
-    # 2. Edit Existing Items
     inv_resp = run_query(supabase.table("inventory").select("*").order("item_name"))
     if inv_resp and inv_resp.data:
         inv_df = pd.DataFrame(inv_resp.data)
-        if 'unit_type' not in inv_df.columns:
-            inv_df['unit_type'] = 'each'
-
-        # Data Editor enabled
-        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit",
-                                    column_config={
-                                        "unit_type": st.column_config.SelectboxColumn(
-                                            "Unit Type",
-                                            options=["each", "per_meter"],
-                                            required=True,
-                                        )
-                                    })
+        if 'Unit' not in inv_df.columns: inv_df['Unit'] = "Pcs"
+        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit")
         
         if st.button("💾 Save Inventory Changes"):
+            edited_inv['base_rate'] = edited_inv['base_rate'].fillna(0)
+            edited_inv['item_name'] = edited_inv['item_name'].fillna("")
+            edited_inv['Unit'] = edited_inv['Unit'].fillna("")
             recs = edited_inv.to_dict(orient="records")
             errors = 0
             for row in recs:
                 if row.get('item_name'):
-                   # Upsert updates existing IDs or inserts new ones
-                   res = run_query(supabase.table("inventory").upsert(row))
-                   if not res: errors += 1
-            
-            if errors == 0:
-                st.success("Inventory Updated!")
-                time.sleep(0.5)
-                st.rerun()
-            else:
-                st.warning("Some items failed to save.")
+                   if not run_query(supabase.table("inventory").upsert(row)): errors += 1
+            if errors == 0: st.success("Inventory Updated!"); time.sleep(0.5); st.rerun()
+            else: st.warning("Some items failed to save.")
     
     st.divider()
     with st.form("pwd_chg"):
         st.subheader("User Profile")
         np = st.text_input("New Password", type="password")
         if st.form_submit_button("Update Password"):
-            run_query(supabase.table("users").update({"password": np}).eq("username", st.session_state.username))
-            st.success("Updated!")
+            run_query(supabase.table("users").update({"password": np}).eq("username", st.session_state.username)); st.success("Updated!")
