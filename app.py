@@ -257,6 +257,8 @@ with tab1:
                     if maps_link_key in st.session_state:
                         current_maps_link = st.session_state[maps_link_key]
                     ml = st.text_input("Maps Link", value=current_maps_link, key=maps_link_key)
+                    if client.get('location'):
+                        st.link_button("🚀 Open Location in Maps", url=client['location'], use_container_width=True)
 
                     if st.form_submit_button("💾 Save Changes"):
                         res = run_query(supabase.table("clients").update({"name": nn, "phone": np, "address": na, "location": ml}).eq("id", client['id'])) # Changed from maps_link to location
@@ -364,10 +366,21 @@ with tab1:
                     c_pdf1, c_pdf2 = st.columns(2)
                     pdf_client = create_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_charged_display, rounded_grand_total, advance_amount)
                     c_pdf1.download_button("📄 Client Invoice", pdf_client, f"Invoice_{client['name']}.pdf", "application/pdf", key=f"pdf_c_{client['id']}")
+                    st.write("#### Internal Profit Analysis")
                     if client.get('status') == "Work Done":
-                        pdf_internal = create_internal_pdf(client['name'], edited_est.to_dict(orient="records"), s_days, labor_actual_cost, labor_charged_display, rounded_grand_total, total_profit)
-                        c_pdf2.download_button("💼 Internal Report", pdf_internal, f"Internal_{client['name']}.pdf", "application/pdf", key=f"pdf_i_{client['id']}")
-                    else: c_pdf2.info("Mark status as 'Work Done' for Internal Report.")
+                        df_profit = edited_est.copy()
+                        df_profit['Qty'] = pd.to_numeric(df_profit['Qty'].fillna(0))
+                        df_profit['Base Rate'] = pd.to_numeric(df_profit['Base Rate'].fillna(0))
+                        df_profit['Total Price'] = pd.to_numeric(df_profit['Total Price'].fillna(0))
+                        
+                        df_profit['Unit Sell Price'] = df_profit['Total Price'] / df_profit['Qty'].replace(0, 1)
+                        df_profit['Row Profit'] = df_profit.apply(lambda row: row['Total Price'] - (row['Base Rate'] * row['Qty']), axis=1)
+                        
+                        st.dataframe(df_profit[['Item', 'Qty', 'Unit', 'Base Rate', 'Unit Sell Price', 'Row Profit']], use_container_width=True, hide_index=True)
+                        st.metric("Net Profit (from Grand Total)", f"₹{total_profit:,.0f}")
+                    else: 
+                        st.info("Mark status as 'Work Done' to view Internal Profit Analysis.")
+
                 else: st.warning("Estimate Empty")
 
 # --- TAB 2: NEW CLIENT ---
@@ -387,10 +400,10 @@ with tab2:
         nm, ph = c1.text_input("Client Name"), c2.text_input("Phone")
         ad = st.text_area("Address")
         maps_link_new_client_key = "loc_in_new_client"
-        current_maps_link_new_client = ""
-        if maps_link_new_client_key in st.session_state:
-            current_maps_link_new_client = st.session_state[maps_link_new_client_key]
-        ml_new_client = st.text_input("Google Maps Link", value=current_maps_link_new_client, key=maps_link_new_client_key)
+        if maps_link_new_client_key not in st.session_state:
+            st.session_state[maps_link_new_client_key] = ""
+        
+        ml_new_client = st.text_input("Google Maps Link", key=maps_link_new_client_key)
         
         if st.form_submit_button("Create Client", type="primary"):
             res = run_query(supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "location": ml_new_client, "status": "Estimate Given", "created_at": datetime.now().isoformat()})) # Changed from maps_link to location
