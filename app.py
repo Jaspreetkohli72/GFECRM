@@ -341,7 +341,7 @@ with tab2:
     loc_new_client = get_geolocation(component_key="geo_tab2_new_client")
     gmaps_new_client = ""
     if loc_new_client:
-        st.write(f"Detected: {loc['coords']['latitude']}, {loc['coords']['longitude']}")
+        st.write(f"Detected: {loc_new_client['coords']['latitude']}, {loc_new_client['coords']['longitude']}")
         if st.button("Paste Location to Form", key="paste_loc_tab2_new_client"):
             gmaps_new_client = f"http://googleusercontent.com/maps.google.com/?q={loc_new_client['coords']['latitude']},{loc_new_client['coords']['longitude']}"
             st.session_state["loc_in_new_client"] = gmaps_new_client
