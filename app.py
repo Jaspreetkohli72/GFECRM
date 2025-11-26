@@ -802,21 +802,20 @@ with tab6:
     st.subheader("📈 Profit & Loss Analysis")
 
     with st.spinner("Loading P&L Data..."):
+        # Fetch Data
         try:
-            # Fetch Data
-            try:
-                clients_response = supabase.table("clients").select("status, internal_estimate").execute()
-            except Exception as e:
-                st.error(f"Database Error: {e}")
-                clients_response = None
-            try:
-                purchase_log_response = supabase.table("purchase_log").select("total_cost").execute()
-            except Exception as e:
-                st.error(f"Database Error: {e}")
-                purchase_log_response = None
-            settings = get_settings() # Re-use existing helper function
+            clients_response = supabase.table("clients").select("status, internal_estimate").execute()
+        except Exception as e:
+            st.error(f"Database Error: {e}")
+            clients_response = None
+        try:
+            purchase_log_response = supabase.table("purchase_log").select("total_cost").execute()
+        except Exception as e:
+            st.error(f"Database Error: {e}")
+            purchase_log_response = None
+        settings = get_settings() # Re-use existing helper function
 
-        if clients_response and clients_response.data and purchase_log_response and purchase_log_response.data and settings:
+    if clients_response and clients_response.data and purchase_log_response and purchase_log_response.data and settings:
             all_clients = clients_response.data
             purchase_log_data = purchase_log_response.data
             daily_labor_cost = float(settings.get('daily_labor_cost', 1000.0))
