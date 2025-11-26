@@ -492,6 +492,13 @@ with tab3:
             am = {'part_margin': cp, 'labor_margin': cl, 'extra_margin': ce}
 
         st.divider()
+
+        # Step A: Fetch Stock Data
+        inv_all_items_response = run_query(supabase.table("inventory").select("item_name, stock_quantity"))
+        stock_map = {}
+        if inv_all_items_response and inv_all_items_response.data:
+            stock_map = {item['item_name']: item.get('stock_quantity', 0.0) for item in inv_all_items_response.data}
+            
         inv = run_query(supabase.table("inventory").select("*"))
         if inv and inv.data:
             imap = {i['item_name']: i for i in inv.data}
@@ -552,6 +559,21 @@ with tab3:
             if edf.to_dict(orient="records") != st.session_state[ssk]:
                 st.session_state[ssk] = edf.to_dict(orient="records")
                 st.rerun()
+
+            # --- Stock Check Alert System ---
+            missing_items = []
+            for index, row in edf.iterrows():
+                item_name = row.get('Item')
+                estimated_qty = float(row.get('Qty', 0))
+                available_stock = float(stock_map.get(item_name, 0.0)) # Ensure available_stock is float for comparison
+                
+                if estimated_qty > available_stock:
+                    missing_items.append(f"{item_name}: Need {int(estimated_qty)}, Have {int(available_stock)}")
+            
+            if missing_items:
+                st.error("⚠️ **Low Stock Warning:** You do not have enough inventory for: " + ", ".join(missing_items) + ". Please visit Suppliers tab to restock.")
+            
+            # --- End Stock Check Alert System ---
 
             mt = pd.to_numeric(edf["Total Price"]).sum()
             daily_cost = float(gs.get('daily_labor_cost', 1000))
@@ -617,17 +639,25 @@ with tab4:
     if inv_resp and inv_resp.data:
         inv_df = pd.DataFrame(inv_resp.data)
         if 'unit' not in inv_df.columns: inv_df['unit'] = "pcs"
+        # Ensure 'stock_quantity' column exists and fill NaN with 0 for display and editing
+        if 'stock_quantity' not in inv_df.columns:
+            inv_df['stock_quantity'] = 0.0
+        else:
+            inv_df['stock_quantity'] = pd.to_numeric(inv_df['stock_quantity'], errors='coerce').fillna(0.0)
+
         edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit",
                                     column_config={
                                         "id": None, # Hide the 'id' column
                                         "item_name": st.column_config.Column("Item Name", width="medium"),
                                         "base_rate": st.column_config.NumberColumn("Rate", width="small"),
-                                        "unit": st.column_config.SelectboxColumn("Unit", options=['pcs', 'm', 'ft', 'cm', 'in'], width="small", required=True)
+                                        "unit": st.column_config.SelectboxColumn("Unit", options=['pcs', 'm', 'ft', 'cm', 'in'], width="small", required=True),
+                                        "stock_quantity": st.column_config.NumberColumn("Stock Quantity", width="small", help="Current physical stock of the item.")
                                     })
         
         if st.button("💾 Save Inventory Changes"):
             df_to_save = edited_inv.copy()
             df_to_save['base_rate'] = pd.to_numeric(df_to_save['base_rate'].fillna(0))
+            df_to_save['stock_quantity'] = pd.to_numeric(df_to_save['stock_quantity'].fillna(0)) # Add this line
             df_to_save['item_name'] = df_to_save['item_name'].fillna("")
             df_to_save['unit'] = df_to_save['unit'].fillna("")
             recs = df_to_save.to_dict(orient="records")
@@ -688,16 +718,35 @@ with tab5:
                     }))
 
                     if res_purchase and res_purchase.data:
-                        if update_inventory_base_rate:
-                            res_inventory = run_query(supabase.table("inventory").update({"base_rate": purchase_rate}).eq("item_name", selected_item_name))
-                            if res_inventory and res_inventory.data:
-                                st.success("Purchase Recorded & Inventory Updated!")
-                                time.sleep(0.5); st.rerun()
-                            else:
-                                st.error("Purchase Recorded, but failed to update Inventory Base Rate.")
+                        # Increment stock_quantity
+                        # Supabase's client 'update' method with a dictionary normally overwrites.
+                        # For incrementing, we might need a direct RPC call or a different update structure.
+                        # Assuming the `supabase-py` client supports an increment-like operation
+                        # for a `NumberColumn` in an update, or a direct `rpc` method if available.
+                        # For now, let's fetch current and then update to be safe, if direct increment fails.
+                        # More idiomatic way: fetch, calculate new value, then update.
+                        # Simplest way which should work with Supabase's client:
+                        current_inv_item = run_query(supabase.table("inventory").select("stock_quantity").eq("item_name", selected_item_name))
+                        if current_inv_item and current_inv_item.data:
+                            current_stock = current_inv_item.data[0].get('stock_quantity', 0)
+                            new_stock = current_stock + purchase_qty
+                            res_stock_update = run_query(supabase.table("inventory").update({"stock_quantity": new_stock}).eq("item_name", selected_item_name))
                         else:
-                            st.success("Purchase Recorded!")
-                            time.sleep(0.5); st.rerun()
+                            res_stock_update = None # Indicate failure to fetch current stock
+
+                        if res_stock_update and res_stock_update.data:
+                            if update_inventory_base_rate:
+                                res_inventory = run_query(supabase.table("inventory").update({"base_rate": purchase_rate}).eq("item_name", selected_item_name))
+                                if res_inventory and res_inventory.data:
+                                    st.success("Purchase Recorded, Stock & Inventory Updated!")
+                                    time.sleep(0.5); st.rerun()
+                                else:
+                                    st.error("Purchase Recorded, Stock Updated, but failed to update Inventory Base Rate.")
+                            else:
+                                st.success("Purchase Recorded & Stock Updated!")
+                                time.sleep(0.5); st.rerun()
+                        else:
+                            st.error("Purchase Recorded, but failed to update Stock Quantity.")
                     else:
                         st.error("Failed to record purchase.")
                 else:
