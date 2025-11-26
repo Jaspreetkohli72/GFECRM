@@ -334,9 +334,42 @@ with tab1:
                     idf = pd.DataFrame(s_items)
                     if "Total Price" not in idf.columns: idf["Total Price"] = 0.0
                     if "Base Rate" not in idf.columns: idf["Base Rate"] = 0.0
+                    if "Qty" not in idf.columns: idf["Qty"] = 1.0
+                    if "Unit" not in idf.columns: idf["Unit"] = "each"
+                    if "unit_type" not in idf.columns: idf["unit_type"] = "each"
+
+                    CONVERSIONS = {"m": 1.0, "cm": 0.01, "ft": 0.3048, "in": 0.0254, "each": 1.0}
+
+                    def get_unit_price(row):
+                        mm = 1.0
+                        if s_margins:
+                            mm = 1 + (s_margins.get('p', 0)/100) + (s_margins.get('l', 0)/100) + (s_margins.get('e', 0)/100)
+                        
+                        if row.get('unit_type') == 'per_meter':
+                            return row['Base Rate'] * mm # Price per meter
+                        else: # each
+                            return row['Total Price'] / row['Qty'] if row['Qty'] != 0 else 0
                     
+                    idf['Unit Price'] = idf.apply(get_unit_price, axis=1)
+
                     # Editable Grid
-                    edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}")
+                    edited_est = st.data_editor(idf, num_rows="dynamic", use_container_width=True, key=f"de_{client['id']}",
+                                                column_config={
+                                                    "unit_type": None,
+                                                    "Unit Price": None, 
+                                                    "Total Price": st.column_config.NumberColumn(disabled=True),
+                                                    "Unit": st.column_config.SelectboxColumn("Unit", options=["each", "m", "cm", "ft", "in"], required=True)
+                                                })
+                    
+                    def calc_total_price(row):
+                        if row.get('unit_type') == 'per_meter':
+                            conversion_factor = CONVERSIONS.get(row['Unit'], 1.0)
+                            return row['Unit Price'] * float(row['Qty']) * conversion_factor
+                        else:
+                            return row['Unit Price'] * float(row['Qty'])
+
+                    # Recalculate Total Price after edits
+                    edited_est['Total Price'] = edited_est.apply(calc_total_price, axis=1)
                     
                     # --- CALCULATIONS ---
                     gs = get_settings()
@@ -468,27 +501,69 @@ with tab3:
         st.divider()
         inv = run_query(supabase.table("inventory").select("*"))
         if inv and inv.data:
-            imap = {i['item_name']: i['base_rate'] for i in inv.data}
+            imap = {i['item_name']: i for i in inv.data}
             with st.form("add_est"):
-                c1, c2, c3 = st.columns([3, 2, 1])
+                c1, c2, c3 = st.columns([3, 1, 1])
                 inam = c1.selectbox("Item", list(imap.keys()))
-                iqty = c2.number_input("Qty", 1.0, step=0.5)
+                
+                selected_item = imap.get(inam)
+                is_per_meter = selected_item and selected_item.get('unit_type') == 'per_meter'
+
+                if is_per_meter:
+                    length = c2.number_input("Length", 1.0, step=0.5)
+                    unit = c3.selectbox("Unit", ["m", "cm", "ft", "in"])
+                else:
+                    iqty = c2.number_input("Qty", 1.0, step=1.0)
+
                 if st.form_submit_button("⬇️ Add"):
-                    st.session_state[ssk].append({"Item": inam, "Qty": iqty, "Base Rate": imap[inam]})
+                    item_to_add = {
+                        "Item": inam, 
+                        "Base Rate": selected_item['base_rate'],
+                        "unit_type": selected_item.get('unit_type', 'each')
+                    }
+                    if is_per_meter:
+                        item_to_add["Qty"] = length
+                        item_to_add["Unit"] = unit
+                    else:
+                        item_to_add["Qty"] = iqty
+                        item_to_add["Unit"] = "each"
+                    st.session_state[ssk].append(item_to_add)
                     st.rerun()
 
         if st.session_state[ssk]:
+            CONVERSIONS = {"m": 1.0, "cm": 0.01, "ft": 0.3048, "in": 0.0254, "each": 1.0}
             mm = 1 + (am['part_margin']/100) + (am['labor_margin']/100) + (am['extra_margin']/100)
+            
             df = pd.DataFrame(st.session_state[ssk])
             if "Qty" not in df.columns: df["Qty"] = 1.0
             if "Base Rate" not in df.columns: df["Base Rate"] = 0.0
-            
-            df["Unit Price (Calc)"] = df["Base Rate"] * mm
-            df["Total Price"] = df["Unit Price (Calc)"] * df["Qty"]
+            if "Unit" not in df.columns: df["Unit"] = "each"
+            if "unit_type" not in df.columns: df["unit_type"] = "each"
+
+            def calculate_total_price(row):
+                base_rate = float(row['Base Rate'])
+                qty = float(row['Qty'])
+                if row['unit_type'] == 'per_meter':
+                    conversion_factor = CONVERSIONS.get(row['Unit'], 1.0)
+                    return base_rate * (qty * conversion_factor) * mm
+                else: # 'each'
+                    return base_rate * qty * mm
+
+            df["Total Price"] = df.apply(calculate_total_price, axis=1)
             
             st.write("#### Items")
             edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}",
-                column_config={"Item": st.column_config.TextColumn(disabled=True), "Base Rate": st.column_config.NumberColumn(disabled=True, format="₹%.2f"), "Total Price": st.column_config.NumberColumn(disabled=True, format="₹%.2f")})
+                column_config={
+                    "Item": st.column_config.TextColumn(disabled=True), 
+                    "Base Rate": st.column_config.NumberColumn(disabled=True, format="₹%.2f"), 
+                    "Total Price": st.column_config.NumberColumn(disabled=True, format="₹%.2f"),
+                    "unit_type": None, # Hide
+                    "Unit": st.column_config.SelectboxColumn(
+                        "Unit",
+                        options=["each", "m", "cm", "ft", "in"],
+                        required=True,
+                    )
+                })
             
             cit = edf.to_dict(orient="records")
             mt = edf["Total Price"].sum()
@@ -538,11 +613,12 @@ with tab4:
     
     # 1. Add New Item
     with st.form("inv_add"):
-        c1, c2 = st.columns([2, 1])
+        c1, c2, c3 = st.columns([2, 1, 1])
         new_item = c1.text_input("Item Name")
         rate = c2.number_input("Rate", min_value=0.0)
+        unit_type = c3.selectbox("Unit Type", ["each", "per_meter"])
         if st.form_submit_button("Add Item"):
-            if run_query(supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate})):
+            if run_query(supabase.table("inventory").insert({"item_name": new_item, "base_rate": rate, "unit_type": unit_type})):
                 st.success("Added")
                 st.rerun()
     
@@ -550,8 +626,18 @@ with tab4:
     inv_resp = run_query(supabase.table("inventory").select("*").order("item_name"))
     if inv_resp and inv_resp.data:
         inv_df = pd.DataFrame(inv_resp.data)
+        if 'unit_type' not in inv_df.columns:
+            inv_df['unit_type'] = 'each'
+
         # Data Editor enabled
-        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit")
+        edited_inv = st.data_editor(inv_df, num_rows="dynamic", key="inv_table_edit",
+                                    column_config={
+                                        "unit_type": st.column_config.SelectboxColumn(
+                                            "Unit Type",
+                                            options=["each", "per_meter"],
+                                            required=True,
+                                        )
+                                    })
         
         if st.button("💾 Save Inventory Changes"):
             recs = edited_inv.to_dict(orient="records")
