@@ -707,9 +707,10 @@ with tab5:
             s_name = st.text_input("Supplier Name")
             s_contact = st.text_input("Contact Person")
             s_phone = st.text_input("Phone")
+            s_gstin = st.text_input("GSTIN")
             if st.form_submit_button("Add New Supplier", type="primary"):
                 if s_name:
-                    res = run_query(supabase.table("suppliers").insert({"name": s_name, "contact_person": s_contact, "phone": s_phone}))
+                    res = run_query(supabase.table("suppliers").insert({"name": s_name, "contact_person": s_contact, "phone": s_phone, "gstin": s_gstin}))
                     if res and res.data:
                         st.success(f"Supplier {s_name} added!")
                         time.sleep(0.5); st.rerun()
@@ -729,7 +730,8 @@ with tab5:
                                                 "id": None,
                                                 "name": st.column_config.TextColumn("Supplier Name", width="large", required=True),
                                                 "contact_person": st.column_config.TextColumn("Contact Person", width="medium"),
-                                                "phone": st.column_config.TextColumn("Phone", width="medium")
+                                                "phone": st.column_config.TextColumn("Phone", width="medium"),
+                                                "gstin": st.column_config.TextColumn("GSTIN", width="medium")
                                             })
         
         if st.button("💾 Save Supplier Changes", key="save_sup_changes"):
