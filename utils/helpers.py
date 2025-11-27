@@ -150,6 +150,11 @@ def normalize_margins(margins_data, global_settings):
     }
 
 
+def get_advance_percentage(settings):
+    """Get advance percentage from settings"""
+    return float(settings.get('advance_percentage', 10.0))
+
+
 def calculate_estimate_details(edf_items_list, days, margins, global_settings):
     """
     Calculates various financial details for an estimate.
