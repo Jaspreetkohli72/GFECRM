@@ -612,6 +612,57 @@ with tab4:
                 st.error(f"Database Error: {e}")
             
     st.divider()
+    st.subheader("💰 Advance Payment Calculator")
+    
+    st.write("**How Advance is Calculated:**")
+    st.info("""
+    Advance Required = (Total Base Cost + (Total Profit × Advance Percentage)) / 100 × 100 (rounded)
+    
+    Where:
+    - Total Base Cost = Material Cost + Labor Cost
+    - Total Profit = Grand Total - Total Base Cost
+    - Advance Percentage = % of profit to collect as advance
+    """)
+    
+    with st.form("advance_calc_settings"):
+        advance_pct = st.slider(
+            "Advance % of Profit", 
+            min_value=0, 
+            max_value=100, 
+            value=int(s.get('advance_percentage', 10.0)),
+            help="What % of profit to collect as advance payment"
+        )
+        
+        col_ex1, col_ex2 = st.columns(2)
+        with col_ex1:
+            st.write("**Example Calculation:**")
+            example_base_cost = 10000
+            example_profit = 5000
+            example_advance = math.ceil((example_base_cost + (example_profit * advance_pct / 100)) / 100) * 100
+            st.text(f"Base Cost: ₹{example_base_cost:,}")
+            st.text(f"Profit: ₹{example_profit:,}")
+            st.text(f"Advance ({advance_pct}%): ₹{example_advance:,}")
+        
+        with col_ex2:
+            st.write("**Your Current Settings:**")
+            st.text(f"Part Margin: {int(s.get('part_margin', 15))}%")
+            st.text(f"Labor Margin: {int(s.get('labor_margin', 20))}%")
+            st.text(f"Extra Margin: {int(s.get('extra_margin', 5))}%")
+            st.text(f"Daily Labor Cost: ₹{float(s.get('daily_labor_cost', 1000)):,.0f}")
+        
+        if st.form_submit_button("Update Advance Settings"):
+            try:
+                supabase.table("settings").upsert({
+                    "id": 1, 
+                    "advance_percentage": advance_pct
+                }).execute()
+                st.success("Advance settings updated!"); 
+                st.cache_resource.clear(); 
+                st.rerun()
+            except Exception as e:
+                st.error(f"Database Error: {e}")
+    
+    st.divider()
     st.subheader("Inventory (Editable)")
     with st.form("inv_add"):
         c1, c2, c3 = st.columns([2, 1, 1])
