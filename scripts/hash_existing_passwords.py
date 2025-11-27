@@ -2,10 +2,8 @@ import os
 from supabase import create_client, Client
 from utils.auth import hash_password
 
-# Load environment variables
-# Ensure SUPABASE_URL and SUPABASE_KEY are set in your environment
-url: str = os.environ.get("SUPABASE_URL")
-key: str = os.environ.get("SUPABASE_KEY")
+url: str = "https://jiwjcittpzjsgnmecuaz.supabase.co"
+key: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imppd2pjaXR0cHpqc2dumWVjdWF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5ODYxMjksImV4cCI6MjA3OTU2MjEyOX0.d7MLjBBzFHNmGyS3VRqoo1EjoZ6xtzabUenOGYR2YoE"
 supabase: Client = create_client(url, key)
 
 def main():
