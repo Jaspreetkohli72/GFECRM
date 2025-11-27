@@ -245,9 +245,38 @@ with tab1:
                         if st.button("Update Status", key=f"btn_{client['id']}"):
                             upd = {"status": n_stat}
                             if s_date: upd["start_date"] = s_date.isoformat()
+                            
+                            # NEW: Add payment tracking when marking as Closed
+                            if n_stat == "Closed":
+                                st.write("**💰 Record Payment Received**")
+                                est_data = client.get('internal_estimate', {})
+                                if est_data:
+                                    est_advance = est_data.get('advance_amount', 0)
+                                    if not est_advance:
+                                        # Calculate if not stored
+                                        gs = get_settings()
+                                        am_normalized = helpers.normalize_margins(est_data.get('margins'), gs)
+                                        calc_results = helpers.calculate_estimate_details(
+                                            edf_items_list=est_data.get('items', []),
+                                            days=est_data.get('days', 1.0),
+                                            margins=am_normalized,
+                                            global_settings=gs
+                                        )
+                                        est_advance = calc_results["advance_amount"]
+                                    
+                                    payment_col1, payment_col2 = st.columns(2)
+                                    with payment_col1:
+                                        st.metric("Grand Total", f"₹{est_advance:,.0f}")
+                                    with payment_col2:
+                                        actual_payment = st.number_input("Amount Received (₹)", min_value=0.0, value=float(est_advance), step=100.0, key=f"payment_{client['id']}")
+                                    
+                                    upd["amount_received"] = actual_payment
+                            
                             try:
                                 res = supabase.table("clients").update(upd).eq("id", client['id']).execute()
-                                if res and res.data: st.success("Status Saved!"); st.rerun()
+                                if res and res.data: 
+                                    st.success("Status Saved!"); 
+                                    st.rerun()
                             except Exception as e:
                                 st.error(f"Database Error: {e}")
     
