@@ -81,7 +81,7 @@ def check_login(username, password):
 
 
 def login_section():
-    st.title("🔒 Jugnoo")
+    st.title("🔐 Jugnoo")
     time.sleep(0.1)
     
     # Check if user already logged in via cookie
@@ -113,9 +113,12 @@ def login_section():
                 else:
                     st.error("Invalid credentials!")
 
-st.stop()
-
 login_section()
+
+# Only show the app if logged in
+if not st.session_state.get('logged_in'):
+    st.stop()
+
 
 # ---------------------------
 # 3. HELPER FUNCTIONS
