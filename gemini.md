@@ -31,7 +31,7 @@ The JugnooCRM application follows a client-server architecture with a clear sepa
 #### 4. Concrete Next Steps/Recommendations
 
 1.  **Urgent: Verify and Secure Password Storage:**
-    *   **Action:** Immediately audit the `users` table and the `auth.py` / `hash_passwords.py` logic.
+    *   **Action:** Immediately audit the `users` table and the `auth.py` / `hash_passwords.py` logic. A migration script (`scripts/hash_existing_passwords.py`) has been created to hash existing unhashed passwords.
     *   **Recommendation:** Ensure all existing and new user passwords are securely hashed using a strong, salted, adaptive one-way algorithm (e.g., bcrypt, scrypt, Argon2). **Never store plain-text passwords.**
 2.  **Conduct a Security Audit of Authentication:**
     *   **Action:** Review `utils/auth.py` for common authentication vulnerabilities, including session management, brute-force protection, and secure cookie handling.
