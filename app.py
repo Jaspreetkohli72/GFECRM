@@ -532,16 +532,10 @@ with tab3:
             
             # --- End Stock Check Alert System ---
 
-            mt = pd.to_numeric(edf["Total Price"]).sum()
-            daily_cost = float(gs.get('daily_labor_cost', 1000))
-            raw_lt = dys * daily_cost
-            
-            total_base_cost = (pd.to_numeric(edf["Base Rate"]) * pd.to_numeric(edf["Qty"])).sum() + raw_lt
-            raw_gt = mt + raw_lt
-            rounded_gt = math.ceil(raw_gt / 100) * 100
-            total_profit = rounded_gt - total_base_cost
-            advance_amount = math.ceil((total_base_cost + (total_profit * 0.10)) / 100) * 100
-            disp_lt = raw_lt + (rounded_gt - raw_gt)
+            # Update dataframe with calculated prices from helper function
+            edf = calculated_results["edf_details_df"].copy()
+
+
             
             st.divider()
             c1, c2, c3, c4, c5 = st.columns(5)
