@@ -1,3 +1,3 @@
 # utils/auth.py
-# Placeholder for future authentication utilities
+# Placeholder for authentication utilities
 pass
