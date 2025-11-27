@@ -18,6 +18,12 @@ import extra_streamlit_components as stx
 # ---------------------------
 st.set_page_config(page_title="Jugnoo", page_icon="🏗️", layout="wide")
 
+# === START OF CRITICAL CACHE FIX ===
+if st.session_state.get('cache_fix_needed', True):
+    st.cache_resource.clear()
+    st.session_state.cache_fix_needed = False
+# === END OF CRITICAL CACHE FIX ===
+
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117 !important; }
@@ -93,7 +99,8 @@ def login_section():
                     st.session_state.username = user
                     expires = datetime.now() + timedelta(days=7)
                     cookie_manager.set("jugnoo_user", user, expires_at=expires)
-                    st.success("Success!")
+                    st.success("Success! Reloading...")
+                    st.cache_resource.clear()
                     st.rerun()
                 else:
                     st.error("Invalid Credentials")
