@@ -117,12 +117,12 @@ def login_section():
         st.session_state.logged_in = True
         st.session_state.username = cookie_user
         return 
-    if st.session_state.get('logged_in'): return
+        if st.session_state.get('logged_in'): return
 
-# Check for recovery mode state
-if st.session_state.get('show_recovery'):
-    recovery_section(back_to_login=lambda: st.session_state.update(show_recovery=False))
-    return
+    # Check for recovery mode state
+    if st.session_state.get('show_recovery'):
+        recovery_section(back_to_login=lambda: st.session_state.update(show_recovery=False))
+        return
 
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
