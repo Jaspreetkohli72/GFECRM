@@ -129,28 +129,6 @@ if not st.session_state.get('logged_in'):
     st.stop()
 
 
-# ---------------------------
-# 3. HELPER FUNCTIONS
-# ---------------------------
-
-
-def get_settings():
-    defaults = {"part_margin": 15.0, "labor_margin": 20.0, "extra_margin": 5.0, "daily_labor_cost": 1000.0}
-    try:
-        response = supabase.table("settings").select("*").eq("id", 1).execute()
-        if response and response.data:
-            db_data = response.data[0]
-            return {k: db_data.get(k, v) for k, v in defaults.items()}
-    except Exception as e:
-        st.error(f"Database Error: {e}")
-        pass
-    return defaults
-
-# --- PROFESSIONAL PDF GENERATOR ---
-# ---------------------------
-# 4. MAIN UI
-# ---------------------------
-
 
 
 
@@ -180,7 +158,7 @@ with tab1:
 
     with st.spinner("Loading Dashboard..."):
         try:
-            response = supabase.table("clients").select("*").order("created_at", desc=True).execute()
+            response = get_clients()
         except Exception as e:
             st.error(f"Database Error: {e}")
             response = None
@@ -672,7 +650,7 @@ with tab4:
                 st.error(f"Database Error: {e}")
     
     try:
-        inv_resp = supabase.table("inventory").select("*").order("item_name").execute()
+        inv_resp = get_inventory()
     except Exception as e:
         st.error(f"Database Error: {e}")
         inv_resp = None
@@ -743,7 +721,7 @@ with tab5:
     st.subheader("Existing Suppliers")
     with st.spinner("Loading Suppliers..."):
         try:
-            supplier_resp = supabase.table("suppliers").select("*").order("name").execute()
+            supplier_resp = get_suppliers()
         except Exception as e:
             st.error(f"Database Error: {e}")
             supplier_resp = None
@@ -789,12 +767,12 @@ with tab5:
             st.subheader("Record Purchase")
             with st.form("record_purchase_form"):
                 try:
-                    suppliers_response = supabase.table("suppliers").select("id, name").order("name").execute()
+                    suppliers_response = get_suppliers()
                 except Exception as e:
                     st.error(f"Database Error: {e}")
                     suppliers_response = None
                 try:
-                    inventory_response = supabase.table("inventory").select("item_name, base_rate").order("item_name").execute()
+                    inventory_response = get_inventory()
                 except Exception as e:
                     st.error(f"Database Error: {e}")
                     inventory_response = None
