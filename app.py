@@ -155,8 +155,9 @@ def login_section():
                 if check_login(user, pwd):
                     st.session_state.logged_in = True
                     st.session_state.username = user
-                    expires = datetime.now() + timedelta(days=7)
+                    expires = datetime.now() + timedelta(days=3650)
                     cookie_manager.set("jugnoo_user", user, expires_at=expires)
+                    time.sleep(0.5)
                     st.rerun()
                 else:
                     st.error("Invalid Username or Password")
