@@ -771,28 +771,7 @@ with tab5:
                 else:
                     st.info("No purchase history found.")
                     
-                with st.expander("➕ Log New Purchase"):
-                    with st.form(f"add_hist_{sup['id']}"):
-                        h_item = st.text_input("Item Name")
-                        h_qty = st.number_input("Quantity", min_value=0.0, step=1.0)
-                        h_amt = st.number_input("Total Cost (₹)", min_value=0.0, step=100.0)
-                        h_date = st.date_input("Date", value=datetime.now())
-                        h_note = st.text_area("Notes")
-                        
-                        if st.form_submit_button("Log Purchase"):
-                            try:
-                                supabase.table("supplier_purchases").insert({
-                                    "supplier_id": sup['id'],
-                                    "item_name": h_item,
-                                    "quantity": h_qty,
-                                    "cost": h_amt,
-                                    "purchase_date": h_date.isoformat(),
-                                    "notes": h_note
-                                }).execute()
-                                st.success("Purchase Logged!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error: {e}")
+
     else:
         st.info("No suppliers found.")
 
