@@ -404,7 +404,7 @@ with tab2:
                 existing_client = supabase.table("clients").select("name").eq("name", nm).execute()
                 if existing_client.data:
                     st.error(f"Error: Client with the name {nm} already exists.")
-                    return
+                    st.stop()
                 try:
                     res = supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "location": ml_new_client, "status": "Estimate Given", "created_at": datetime.now().isoformat()}).execute()
                     if res and res.data: 
