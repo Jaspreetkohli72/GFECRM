@@ -400,6 +400,11 @@ with tab2:
             if ph and not ph.replace("+", "").replace("-", "").replace(" ", "").isdigit():
                 st.error("Phone number must contain only digits, spaces, +, or -.")
             else:
+                # Check if client name already exists
+                existing_client = supabase.table("clients").select("name").eq("name", nm).execute()
+                if existing_client.data:
+                    st.error(f"Error: Client with the name {nm} already exists.")
+                    return
                 try:
                     res = supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "location": ml_new_client, "status": "Estimate Given", "created_at": datetime.now().isoformat()}).execute()
                     if res and res.data: 
@@ -872,7 +877,7 @@ with tab6:
         
         for idx, row in closed_df.iterrows():
             est = row.get('internal_estimate')
-            actual_rev = float(row.get('final_settlement_amount', 0.0))
+            actual_rev = float(row.get('final_settlement_amount') or 0.0)
             
             # Fallback if 0
             if actual_rev == 0 and est:
