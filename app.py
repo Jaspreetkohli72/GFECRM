@@ -131,11 +131,11 @@ def check_login(username, password):
         return False
 
 def login_section():
-    st.title("🔐 Jugnoo CRM")
-    time.sleep(0.1)
-    
     # Check if user already logged in via cookie
-    cookie_user = cookie_manager.get(cookie="jugnoo_user")
+    with st.spinner("Checking session..."):
+        time.sleep(0.3) # Allow cookie manager to sync
+        cookie_user = cookie_manager.get(cookie="jugnoo_user")
+    
     if cookie_user:
         st.session_state.logged_in = True
         st.session_state.username = cookie_user
@@ -144,6 +144,8 @@ def login_section():
     # If already logged in (from this session), don't show form
     if st.session_state.get('logged_in'):
         return
+
+    st.title("🔐 Jugnoo CRM")
 
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
