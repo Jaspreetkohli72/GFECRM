@@ -10,6 +10,7 @@ from io import BytesIO
 CONVERSIONS = {'pcs': 1.0, 'each': 1.0, 'm': 1.0, 'cm': 0.01, 'ft': 0.3048, 'in': 0.0254}
 P_L_STATUS = ["Work Done", "Closed"]
 ACTIVE_STATUSES = ["New Lead", "Estimate Given", "Order Received", "Work In Progress"]
+ACTIVE_STATUSES = ["New Lead", "Estimate Given", "Order Received", "Work In Progress"]
 INACTIVE_STATUSES = ["Work Done", "Closed"]
 
 # --- PROFESSIONAL PDF GENERATOR ---
@@ -20,7 +21,7 @@ class PDFGenerator:
     def _add_header(self, title):
         self.pdf.add_page()
         self.pdf.set_font("Arial", 'B', 20)
-        self.pdf.cell(0, 10, "Jugnoo", ln=True, align='L')
+        self.pdf.cell(0, 10, "Galaxy CRM", ln=True, align='L')
         self.pdf.set_font("Arial", 'I', 10)
         self.pdf.cell(0, 6, "Smart Automation Solutions", ln=True, align='L')
         self.pdf.line(10, 28, 200, 28)
@@ -132,37 +133,20 @@ def create_internal_pdf(*args, **kwargs):
 
 def normalize_margins(margins_data, global_settings):
     """
-    Normalize margins from stored format to standard format.
-    Handles both {'p': val, 'l': val, 'e': val} and {'part_margin': val, ...} formats.
-    
-    Args:
-        margins_data: Can be None, short format {'p', 'l', 'e'}, or full format
-        global_settings: The global settings dict with defaults
-        
-    Returns:
-        dict: Standardized margins dict with 'part_margin', 'labor_margin', 'extra_margin' keys
+    Returns the single profit margin integer.
     """
     if margins_data is None:
-        return {
-            'part_margin': float(global_settings.get('part_margin', 15.0)),
-            'labor_margin': float(global_settings.get('labor_margin', 20.0)),
-            'extra_margin': float(global_settings.get('extra_margin', 5.0))
-        }
+        return int(global_settings.get('profit_margin', 15))
     
-    # Handle short format {'p': val, 'l': val, 'e': val}
-    if 'p' in margins_data or 'l' in margins_data or 'e' in margins_data:
-        return {
-            'part_margin': float(margins_data.get('p', global_settings.get('part_margin', 15.0))),
-            'labor_margin': float(margins_data.get('l', global_settings.get('labor_margin', 20.0))),
-            'extra_margin': float(margins_data.get('e', global_settings.get('extra_margin', 5.0)))
-        }
+    # If it's a dict (old format or just passed as dict), try to get profit_margin
+    if isinstance(margins_data, dict):
+        return int(margins_data.get('profit_margin', global_settings.get('profit_margin', 15)))
     
-    # Handle full format or return as-is
-    return {
-        'part_margin': float(margins_data.get('part_margin', global_settings.get('part_margin', 15.0))),
-        'labor_margin': float(margins_data.get('labor_margin', global_settings.get('labor_margin', 20.0))),
-        'extra_margin': float(margins_data.get('extra_margin', 5.0))
-    }
+    # If it's already a value
+    try:
+        return int(margins_data)
+    except:
+        return int(global_settings.get('profit_margin', 15))
 
 
 def get_advance_percentage(settings):
@@ -170,7 +154,7 @@ def get_advance_percentage(settings):
     return float(settings.get('advance_percentage', 10.0))
 
 
-def calculate_estimate_details(edf_items_list, days, margins, global_settings):
+def calculate_estimate_details(edf_items_list, days, margins, global_settings, welders=0, helpers=0):
     """
     Calculates various financial details for an estimate.
     CENTRALIZED calculation - ensures consistency across all tabs.
@@ -180,14 +164,16 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings):
         days (float): The number of labor days for the estimate.
         margins (dict): A dictionary of margins to apply to the estimate.
         global_settings (dict): A dictionary of global settings.
+        welders (int): Number of welders.
+        helpers (int): Number of helpers.
 
     Returns:
         dict: A dictionary containing the calculated financial details.
     """
     # Normalize margins to standard format
-    normalized_margins = normalize_margins(margins, global_settings)
+    profit_margin = normalize_margins(margins, global_settings)
     
-    mm = 1 + (normalized_margins.get('part_margin', 0)/100) + (normalized_margins.get('labor_margin', 0)/100) + (normalized_margins.get('extra_margin', 0)/100)
+    mm = 1 + (profit_margin / 100.0)
 
     def calc_total_item(row):
         try:
@@ -207,8 +193,26 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings):
     else:
         mat_sell = 0.0
 
-    daily_labor_cost = float(global_settings.get('daily_labor_cost', 1000.0))
-    labor_actual_cost = float(days) * daily_labor_cost
+    # Calculate labor cost
+    # Base Labor (General Team/Day?) or is 'Days' just the duration?
+    # Usually 'Days' is for the whole crew or a base charge.
+    # Current logic: Days * Daily Cost (which is likely the 'Foreman' or 'Base' rate)
+    # PLUS: Welders * Rate * Days
+    # PLUS: Helpers * Rate * Days
+    
+    # Calculate labor cost
+    # Base Labor removed as per user request (purely Welder/Helper based now?)
+    # or just relying on specific rates.
+    
+    # base_daily_cost = float(global_settings.get('daily_labor_cost', 1000.0)) # Removed
+    welder_rate = float(global_settings.get('welder_daily_rate', 500.0))
+    helper_rate = float(global_settings.get('helper_daily_rate', 300.0))
+    
+    # cost_base_labor = float(days) * base_daily_cost # Removed
+    cost_welders = float(welders) * welder_rate * float(days)
+    cost_helpers = float(helpers) * helper_rate * float(days)
+    
+    labor_actual_cost = cost_welders + cost_helpers
 
     def calculate_item_base_cost(row):
         qty = float(row.get('Qty', 0))
@@ -217,31 +221,52 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings):
         factor = CONVERSIONS.get(unit_name, 1.0)
         return base_rate * qty * factor
     
+    # Total Material Base Cost
     total_material_base_cost = float(edf_details_df.apply(calculate_item_base_cost, axis=1).sum()) if not edf_details_df.empty else 0.0
-    total_base_cost = total_material_base_cost + labor_actual_cost
     
-    # CRITICAL: Calculate grand total and round ONCE (to nearest 100)
-    raw_grand_total = mat_sell + labor_actual_cost
-    rounded_grand_total = math.ceil(raw_grand_total / 100) * 100
+    # 1. TOTAL COST (Material + Labor)
+    total_project_cost = total_material_base_cost + labor_actual_cost
     
-    # CRITICAL: Profit must be calculated from ROUNDED grand total for consistency
-    total_profit = rounded_grand_total - total_base_cost
+    # 2. PROFIT
+    # global profit 100% means cost X2 -> Profit = Cost * (margin/100)
+    profit_amount = total_project_cost * (profit_margin / 100.0)
     
-    # CRITICAL: Advance uses ROUNDED grand total and profit calculation
-    # Formula: (Material + Labor) + X% Profit Margin (from settings)
-    adv_margin_pct = float(global_settings.get('advance_margin', 20.0)) / 100.0
-    advance_amount = math.ceil((total_base_cost * (1 + adv_margin_pct)) / 100) * 100
+    # 3. BILL AMOUNT
+    # Cost + Profit
+    raw_bill_amount = total_project_cost + profit_amount
+    # Rounding Bill Amount (Standard practice to round final bill)
+    bill_amount = math.ceil(raw_bill_amount / 100) * 100
     
-    # Labor display includes rounding difference
-    disp_lt = labor_actual_cost + (rounded_grand_total - raw_grand_total)
+    # Profit derived from rounded bill
+    final_profit = bill_amount - total_project_cost
+
+    # 4. ADVANCE REQ
+    # %adv of bill amt
+    adv_margin_pct = float(global_settings.get('advance_percentage', 20.0))
+    advance_amount = math.ceil((bill_amount * (adv_margin_pct / 100.0)) / 100) * 100
+    
+    # Update Item 'Total Price' to reflect Selling Price (Base + Profit Margin)
+    def calc_item_selling_price(row):
+        try:
+            qty = float(row.get('Qty', 0))
+            base = float(row.get('Base Rate', 0))
+            unit_name = row.get('Unit', 'pcs')
+            factor = CONVERSIONS.get(unit_name, 1.0)
+            base_cost = base * qty * factor
+            return base_cost * mm
+        except: return 0.0
+
+    if not edf_details_df.empty:
+        edf_details_df['Total Price'] = edf_details_df.apply(calc_item_selling_price, axis=1)
+        edf_details_df['Unit Price'] = edf_details_df['Total Price'] / edf_details_df['Qty'].replace(0, 1)
 
     return {
-        "mat_sell": mat_sell,
+        "total_material_base_cost": total_material_base_cost,
         "labor_actual_cost": labor_actual_cost,
-        "rounded_grand_total": rounded_grand_total,
-        "total_profit": total_profit,
+        "total_project_cost": total_project_cost,
+        "total_profit": final_profit,
+        "bill_amount": bill_amount,
         "advance_amount": advance_amount,
-        "disp_lt": disp_lt,
         "edf_details_df": edf_details_df
     }
 

@@ -1,7 +1,7 @@
-# 🏗️ JugnooCRM: Easy Project & Finance Management
+# 🏗️ Galaxy CRM: Easy Project & Finance Management
 
-## 👋 What is JugnooCRM?
-JugnooCRM is a simple, powerful tool designed to help you manage your entire business workflow in one place. It handles everything from creating accurate client estimates and tracking inventory to monitoring your project finances and profits. It replaces messy paper notes and complex spreadsheets with a clean, easy-to-use digital system.
+## 👋 What is Galaxy CRM?
+Galaxy CRM is a simple, powerful tool designed to help you manage your entire business workflow in one place. It handles everything from creating accurate client estimates and tracking inventory to monitoring your project finances and profits. It replaces messy paper notes and complex spreadsheets with a clean, easy-to-use digital system.
 
 ## 🚀 How It Works (The Core Loop)
 The app follows the natural flow of your business:

@@ -1,10 +1,10 @@
 streamlit
 supabase
 pandas
-geopy
+
 psycopg2-binary
 fpdf
-streamlit-js-eval
+
 extra-streamlit-components
 passlib
 plotly

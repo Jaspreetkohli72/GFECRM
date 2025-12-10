@@ -9,15 +9,16 @@ import pandas as pd
 import math
 import textwrap
 
-from streamlit_js_eval import get_geolocation
+
 import altair as alt
 import plotly.graph_objects as go
 import extra_streamlit_components as stx
+import streamlit.components.v1 as components
 
 # ---------------------------
 # 1. SETUP & CONNECTION
 # ---------------------------
-st.set_page_config(page_title="Jugnoo", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="Galaxy CRM", page_icon="🏗️", layout="wide")
 
 # === START OF CRITICAL CACHE FIX ===
 if st.session_state.get('cache_fix_needed', True):
@@ -163,11 +164,21 @@ def get_staff_roles():
 
 @st.cache_data(ttl=3600)
 def get_settings():
+    defaults = {
+        'id': 1,
+        'part_margin': 15.0,
+        'labor_margin': 20.0,
+        'extra_margin': 5.0,
+        'daily_labor_cost': 1000.0,
+        'advance_percentage': 10.0
+    }
     try:
         res = supabase.table("settings").select("*").eq("id", 1).execute()
-        if res and res.data: return res.data[0]
-        return {}
-    except: return {}
+        if res and res.data: 
+            return res.data[0]
+        return defaults
+    except: 
+        return defaults
 
 import re
 def sanitize_filename(name):
@@ -196,7 +207,7 @@ def login_section():
     # Check if user already logged in via cookie
     with st.spinner("Checking session..."):
         time.sleep(0.3) # Allow cookie manager to sync
-        cookie_user = cookie_manager.get(cookie="jugnoo_user")
+        cookie_user = cookie_manager.get(cookie="galaxy_user")
     
     if cookie_user:
         st.session_state.logged_in = True
@@ -207,7 +218,7 @@ def login_section():
     if st.session_state.get('logged_in'):
         return
 
-    st.title("🔐 Jugnoo CRM")
+    st.title("🔐 Galaxy CRM")
 
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
@@ -220,7 +231,7 @@ def login_section():
                     st.session_state.logged_in = True
                     st.session_state.username = user
                     expires = datetime.now() + timedelta(days=3650)
-                    cookie_manager.set("jugnoo_user", user, expires_at=expires)
+                    cookie_manager.set("galaxy_user", user, expires_at=expires)
                     time.sleep(0.5)
                     st.rerun()
                 else:
@@ -235,7 +246,7 @@ if not st.session_state.get('logged_in'):
     st.stop()
 
 # Top Bar
-st.title("🚀 Jugnoo CRM")
+st.title("🚀 Galaxy CRM")
 st.markdown(f"""
 <div style="display: flex; align-items: center; margin-bottom: 0px;">
     <span style="font-size: 1.75rem; margin-right: 10px;">👋</span>
@@ -309,43 +320,22 @@ with tab1:
                         c1, c2 = st.columns([1.5, 1])
                         with c1:
                             st.write("**Edit Details**")
-                            # Geolocation and Location Logic (Outside Form)
-                            loc_edit = get_geolocation(component_key=f"geo_edit_{client['id']}")
-                            
-                            # Determine initial value for Maps Link
-                            current_loc_val = client.get('location', '')
-                            loc_update_key = f"loc_update_{client['id']}"
-                            
-                            # Check if we have a pending update from the button
-                            if loc_update_key in st.session_state:
-                                current_loc_val = st.session_state[loc_update_key]
 
-                            if loc_edit:
-                                if st.button("📍 Use Current Location", key=f"paste_loc_{client['id']}"):
-                                    new_lat = loc_edit['coords']['latitude']
-                                    new_long = loc_edit['coords']['longitude']
-                                    st.session_state[loc_update_key] = f"https://www.google.com/maps/search/{new_lat},{new_long}"
-                                    st.rerun()
 
-                            if client.get('location'):
-                                st.link_button("📍 Open Saved Location", url=client['location'], use_container_width=True)
+
 
                             with st.form(f"edit_details_{client['id']}"):
                                 nn = st.text_input("Name", value=client['name'])
                                 np = st.text_input("Phone", value=client.get('phone', ''), max_chars=15, help="Enter digits only")
                                 na = st.text_area("Address", value=client.get('address', ''))
-                                ml = st.text_input("Maps Link", value=current_loc_val)
                                 
                                 if st.form_submit_button("💾 Save Changes"):
                                     if np and not np.replace("+", "").replace("-", "").replace(" ", "").isdigit():
                                         st.error("Phone number must contain only digits, spaces, +, or -.")
                                     else:
                                         try:
-                                            supabase.table("clients").update({"name": nn, "phone": np, "address": na, "location": ml}).eq("id", client['id']).execute()
+                                            supabase.table("clients").update({"name": nn, "phone": np, "address": na}).eq("id", client['id']).execute()
                                             st.success("Saved!")
-                                            # Clear the temp session state if it exists
-                                            if loc_update_key in st.session_state:
-                                                del st.session_state[loc_update_key]
                                             get_clients.clear()
                                             st.rerun()
                                         except Exception as e:
@@ -548,44 +538,77 @@ with tab1:
 # --- TAB 2: NEW CLIENT ---
 with tab2:
     st.subheader("Add New Client")
-    loc_new_client = get_geolocation(component_key="geo_tab2_new_client")
-    gmaps_new_client = ""
-    if loc_new_client:
-        st.write(f"Detected: {loc_new_client['coords']['latitude']}, {loc_new_client['coords']['longitude']}")
-        if st.button("Paste Location to Form", key="paste_loc_tab2_new_client"):
-            gmaps_new_client = f"https://www.google.com/maps/search/{loc_new_client['coords']['latitude']},{loc_new_client['coords']['longitude']}"
-            st.session_state["loc_in_new_client"] = gmaps_new_client
     
-    with st.form("new_client"):
-        c1, c2 = st.columns(2)
-        nm, ph = c1.text_input("Client Name"), c2.text_input("Phone", max_chars=15, help="Enter digits only")
-        ad = st.text_area("Address")
-        maps_link_new_client_key = "loc_in_new_client"
-        if maps_link_new_client_key not in st.session_state:
-            st.session_state[maps_link_new_client_key] = ""
-        
-        ml_new_client = st.text_input("Google Maps Link", key=maps_link_new_client_key)
-        
-        if st.form_submit_button("Create Client", type="primary"):
-            if not nm or not ph or not ad:
-                st.error("Client Name, Phone, and Address are required fields.")
-            elif ph and not ph.replace("+", "").replace("-", "").replace(" ", "").isdigit():
-                st.error("Phone number must contain only digits, spaces, +, or -.")
+    # Remove form to allow specialized layout
+    c1, c2 = st.columns(2)
+    nm, ph = c1.text_input("Client Name"), c2.text_input("Phone", max_chars=15, help="Enter digits only")
+    ad = st.text_area("Address")
+    measurements = st.text_area("Measurements")
+    
+    # "Fit" button behavior - utilizing file uploader which handles camera/gallery on mobile
+    fit_imgs = st.file_uploader("Fit (Upload/Camera)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
+    
+    # Buttons Layout
+    b1, b2 = st.columns([1, 1])
+    
+    with b1:
+        submitted = st.button("Create Client", type="primary", use_container_width=True)
+    
+    # Logic for Go to Estimator visibility
+    show_goto = 'last_created_client' in st.session_state
+    
+    with b2:
+        if show_goto:
+            if st.button(f"Go to Estimator ({st.session_state['last_created_client']})", use_container_width=True):
+                st.session_state['est_selected_client_name'] = st.session_state['last_created_client']
+                # JS Injection to switch tabs (Index 2 is Estimator)
+                js_code = """
+                <script>
+                    var tabContainer = window.parent.document.querySelector('[data-testid="stTabs"]');
+                    if (tabContainer) {
+                        var buttons = tabContainer.querySelectorAll('button');
+                        if (buttons.length > 2) {
+                            buttons[2].click();
+                        }
+                    }
+                </script>
+                """
+                components.html(js_code, height=0)
+    
+    if submitted:
+        if not nm or not ph or not ad:
+            st.error("Client Name, Phone, and Address are required fields.")
+        elif ph and not ph.replace("+", "").replace("-", "").replace(" ", "").isdigit():
+            st.error("Phone number must contain only digits, spaces, +, or -.")
+        else:
+            # Check if client name already exists
+            existing_client = supabase.table("clients").select("name").eq("name", nm).execute()
+            if existing_client.data:
+                st.error(f"Error: Client with the name {nm} already exists.")
             else:
-                # Check if client name already exists
-                existing_client = supabase.table("clients").select("name").eq("name", nm).execute()
-                if existing_client.data:
-                    st.error(f"Error: Client with the name {nm} already exists.")
-                    st.stop()
                 try:
-                    res = supabase.table("clients").insert({"name": nm, "phone": ph, "address": ad, "location": ml_new_client, "status": "New Lead", "created_at": datetime.now().isoformat()}).execute()
+                    # In a real app with storage, we would upload fit_imgs to Supabase Storage here and get URLs
+                    
+                    data = {
+                        "name": nm, 
+                        "phone": ph, 
+                        "address": ad, 
+                        "measurements": measurements,
+                        "status": "New Lead", 
+                        "created_at": datetime.now().isoformat()
+                    }
+                    
+                    res = supabase.table("clients").insert(data).execute()
                     if res and res.data: 
+                        st.session_state['last_created_client'] = nm
                         st.success(f"Client {nm} Added!")
                         get_clients.clear()
+                        # Force a rerun to show the "Go to Estimator" button immediately
                         st.rerun()
                     else: st.error("Save Failed.")
                 except Exception as e:
                     st.error(f"Database Error: {e}")
+
 
 # --- TAB 3: ESTIMATOR ---
 with tab3:
@@ -597,7 +620,8 @@ with tab3:
             st.error(f"Database Error: {e}")
             ac = None
     cd = {c['name']: c for c in ac.data} if ac and ac.data else {}
-    tn = st.selectbox("Select Client", list(cd.keys()), key="est_sel")
+    col_sel, _ = st.columns([1, 2])
+    tn = col_sel.selectbox("Select Client", list(cd.keys()), key="est_sel", index=list(cd.keys()).index(st.session_state.get('est_selected_client_name')) if st.session_state.get('est_selected_client_name') in cd else 0)
     
     if tn:
         tc = cd[tn]
@@ -605,23 +629,21 @@ with tab3:
         if se: li = se.get('items', [])
         sm = se.get('margins') if se else None
         sd = se.get('days', 1.0) if se else 1.0
+        sw = se.get('welders', 0) if se else 0
+        sh = se.get('helpers', 0) if se else 0
         ssk = f"est_{tc['id']}"
         if ssk not in st.session_state: st.session_state[ssk] = li
 
         st.divider(); gs = get_settings()
-        col1, col2 = st.columns([1, 3])
-        with col1:
-            uc = st.checkbox("🛠️ Use Custom Margins", value=(sm is not None), key="cm")
-        with col2:
-            dys = st.number_input("⏳ Days", min_value=1, step=1, value=int(sd))
-        am = gs
-        if uc:
-            dp, dl, de = (int(sm['p']), int(sm['l']), int(sm['e'])) if sm else (int(gs['part_margin']), int(gs['labor_margin']), int(gs['extra_margin']))
-            mc1, mc2, mc3 = st.columns(3)
-            cp, cl, ce = mc1.slider("Part %", 0, 100, dp, key="cp"), mc2.slider("Labor %", 0, 100, dl, key="cl"), mc3.slider("Extra %", 0, 100, de, key="ce")
-            am = {'part_margin': cp, 'labor_margin': cl, 'extra_margin': ce}
+        
+        # Logic to determine Profit Margin (Hidden from UI as requested)
+        global_pm = int(gs.get('profit_margin', 15))
+        current_pm = global_pm
+        if se and 'profit_margin' in se:
+            try: current_pm = int(se['profit_margin'])
+            except: pass
+        am = current_pm
 
-        st.divider()
 
         # Step A: Fetch Stock Data
         try:
@@ -629,71 +651,150 @@ with tab3:
         except Exception as e:
             st.error(f"Database Error: {e}")
             inv_all_items_response = None
-        stock_map = {}
         if inv_all_items_response and inv_all_items_response.data:
-            stock_map = {item['item_name']: item.get('stock_quantity', 0.0) for item in inv_all_items_response.data}
+             # Stock map removed
+             pass
             
         inv = inv_all_items_response
         if inv and inv.data:
-            imap = {i['item_name']: i for i in inv.data}
+            # --- New Inventory Selection System (Type -> Dimension) ---
+            # Ensure dataframe has required columns, handle if missing (fallback/safe)
+            inv_df = pd.DataFrame(inv.data)
             
-            # --- FIX: Move Item Selection OUTSIDE form for dynamic updates ---
-            inam = st.selectbox("Select Item to Add", list(imap.keys()), key="est_item_selector")
+            # Check if new columns exist (to prevent crash if SQL not ran)
+            has_cols = 'item_type' in inv_df.columns and 'dimension' in inv_df.columns
             
-            selected_item_data = imap.get(inam, {})
-            db_unit = selected_item_data.get('unit', 'pcs')
+            selected_item_row = None
             
-            # Dynamic Unit Logic
-            if db_unit == 'pcs':
-                unit_opts = ['pcs']
-                unit_disabled = True
-                unit_index = 0
-            else:
-                unit_opts = ['m', 'ft', 'cm', 'in']
-                unit_disabled = False
-                try:
-                    unit_index = unit_opts.index(db_unit)
-                except ValueError:
-                    unit_index = 0 # Default to first if db_unit not in list (e.g. if it was 'kg' but we only support length)
+            if has_cols:
+                # Filter out items with missing type/dim if we strictly want the new system
+                # Or handle "Uncategorized"
+                # For now, let's just get unique types
+                all_types = inv_df['item_type'].dropna().unique().tolist()
+                
+                if not all_types:
+                     st.warning("No inventory types found. Please adding types to your inventory in the database.")
+                     # Fallback to simple list if needed or just show nothing
+                
+                # --- Single Row Input System ---
+                
+                # We need columns for: Type, Dimension, Qty, Add Button
+                # Adjust ratios to fit nicely
+                c_type, c_dim, c_qty, c_btn = st.columns([3, 3, 2, 1], vertical_alignment="bottom")
+                
+                sel_type = c_type.selectbox("Item Type", all_types, key="est_type_sel", label_visibility="visible")
+                
+                # Filter dimensions
+                dims_for_type = []
+                if sel_type:
+                    dims_for_type = inv_df[inv_df['item_type'] == sel_type]['dimension'].dropna().unique().tolist()
+                
+                # Dynamic Label for Dimension (Hardware -> Type, others -> Dimension)
+                dim_label = "Type" if sel_type == "Hardware" else "Dimensions"
+                
+                sel_dim = c_dim.selectbox(dim_label, dims_for_type, key="est_dim_sel", label_visibility="visible")
+                
+                # Find Match to get Unit/Rate
+                selected_item_row = None
+                qty_label = "Qty"
+                db_unit = "pcs"
+                base_rate = 0
+                inam = ""
+                
+                if sel_type and sel_dim:
+                    match = inv_df[(inv_df['item_type'] == sel_type) & (inv_df['dimension'] == sel_dim)]
+                    if not match.empty:
+                        selected_item_row = match.iloc[0].to_dict()
+                        inam = selected_item_row['item_name']
+                        base_rate = selected_item_row.get('base_rate', 0)
+                        db_unit = selected_item_row.get('unit', 'pcs')
+                        qty_label = f"Qty ({db_unit})"
 
-            with st.form("add_est"):
-                c1, c2, c3 = st.columns([1, 1, 1])
+                # Qty Input (No form, direct input)
+                iqty = c_qty.number_input(qty_label, min_value=0.0, value=1.0, step=0.1, format="%g", key="est_qty_input")
                 
-                step_val = 1.0 if db_unit == "pcs" else 0.1
-                
-                iqty = c1.number_input("Qty", min_value=0.1, step=step_val)
-                iunit = c2.selectbox("Unit", unit_opts, index=unit_index, disabled=unit_disabled)
-                
-                # Add Button (aligned with inputs)
-                # Using a container to push button down to align with inputs if needed, or just standard
-                if c3.form_submit_button("⬇️ Add Item"):
-                    st.session_state[ssk].append({
-                        "Item": inam, 
-                        "Qty": iqty, 
-                        "Base Rate": selected_item_data.get('base_rate', 0), 
-                        "Unit": iunit
-                    })
-                    st.rerun()
+                # Add Button - aligned with input using vertical_alignment="bottom" on columns
+                if c_btn.button("➕ Add"):
+                     if selected_item_row:
+                        st.session_state[ssk].append({
+                            "Item": inam, 
+                            "Qty": iqty, 
+                            "Base Rate": base_rate, 
+                            "Unit": db_unit 
+                        })
+                        st.rerun()
+                     else:
+                        st.toast("Select valid item first", icon="⚠️")
+            # --- End New System ---
 
         if st.session_state[ssk]:
             df = helpers.create_item_dataframe(st.session_state[ssk])
             df.insert(0, 'Sr No', range(1, len(df) + 1))
 
+            # Calculate Qty (pcs) for display
+            # Rule: If unit is 'ft', 1 pc = 20 ft. Else 1 pc = 1 unit (or as is).
+            df['Qty (pcs)'] = df.apply(lambda x: x['Qty'] / 20.0 if x['Unit'] == 'ft' else x['Qty'], axis=1)
+            
+            # Reorder columns as requested: Sr No, Item, Qty (pcs), Qty, Unit Price, Total Price
+            # Note: Unit Price and Total Price are calculated later in 'edf', but 'df' is for display structure.
+            # We need to ensure 'edf' (which comes from 'df') has these columns.
+            # Actually, 'edf' is the result of data_editor.
+            # Let's prepare 'df' with these columns first. 
+            
+            # 'df' currently has: Item, Qty, Base Rate, Unit, Sr No (inserted above), Qty (pcs) (added)
+            
+            # We want the editor to show them in specific order.
+            # We can use column_order in data_editor, but easier to just order the dataframe.
+            
+            # Reposition columns
+            # We need to keep 'Base Rate' and 'Unit' for logic, even if not shown or shown differently.
+            # User list: srno,item,qty(pcs),qty({unit}),unit price,total price.
+            # 'Unit Price' and 'Total Price' are computed/filled later. 
+            # We should initialize them if they don't exist in 'df' yet, or let them be added by the editor if they are just display.
+            # Actually, the user wants to SEE them.
+            if 'Unit Price' not in df.columns: df['Unit Price'] = 0.0
+            if 'Total Price' not in df.columns: df['Total Price'] = 0.0
+            
+            # Define exact input order
+            cols_order = ['Sr No', 'Item', 'Qty (pcs)', 'Qty', 'Unit Price', 'Total Price', 'Unit', 'Base Rate'] 
+            # We keep Unit and Base Rate at the end (can hide them or leave them).
+            # User didn't ask to remove Base Rate, but list implies strict order.
+            # "unit price" is derived from Base Rate + Profit.
+            # "total price" is Unit Price * Qty.
+            
+            df = df[cols_order]
+
             st.write("#### Items")
-            edf = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"t_{tc['id']}", 
+            edf = st.data_editor(
+                df, 
+                num_rows="dynamic", 
+                use_container_width=True, 
+                key=f"t_{tc['id']}",
                 column_config={
                     "Sr No": st.column_config.NumberColumn("Sr No", width="small", disabled=True),
-                    "Qty": st.column_config.NumberColumn("Qty", width="small", step=0.1), # Allow float generally, restricted at input
                     "Item": st.column_config.TextColumn("Item", width="large"),
-                    "Unit": st.column_config.TextColumn("Unit", width="small", disabled=True),
-                    "Base Rate": st.column_config.NumberColumn("Base Rate", width="small"),
+                    "Qty (pcs)": st.column_config.NumberColumn("Qty (pcs)", width="small", disabled=True, format="%.2f"),
+                    "Qty": st.column_config.NumberColumn("Qty (Unit)", width="small", step=0.1, help="Quantity in Ft or Unit"),
                     "Unit Price": st.column_config.NumberColumn("Unit Price", format="₹%.2f", width="small", disabled=True),
-                    "Total Price": st.column_config.NumberColumn("Total Price", format="₹%.2f", width="small", disabled=True)
-                })
+                    "Total Price": st.column_config.NumberColumn("Total Price", format="₹%.2f", width="small", disabled=True),
+                    "Unit": None, # Hide column
+                    "Base Rate": None # Hide column
+                }
+            )
             
             # Enforce float types for calculation consistency early
             edf['Qty'] = pd.to_numeric(edf['Qty'], errors='coerce').fillna(0).astype(float)
+            # Base Rate is converting from currency maybe?
+            # It's already float in session state.
             edf['Base Rate'] = pd.to_numeric(edf['Base Rate'], errors='coerce').fillna(0).astype(float)
+
+            # Move Days Input Here
+            # Labor Section
+            st.write("#### Labor")
+            cd1, cd2, cd3, _ = st.columns([1, 1, 1, 2])
+            dys = cd1.number_input("⏳ Days", min_value=1, step=1, value=int(sd))
+            welders = cd2.number_input("👨‍🏭 Welders", min_value=0, step=1, value=int(sw))
+            helper_count = cd3.number_input("👷 Helpers", min_value=0, step=1, value=int(sh))
 
             # --- Universal Calculation Logic ---
             gs = get_settings()
@@ -703,69 +804,66 @@ with tab3:
                 edf_items_list=edf.to_dict(orient="records"),
                 days=dys,
                 margins=am_for_calc,
-                global_settings=gs
+                global_settings=gs,
+                welders=welders,
+                helpers=helper_count
             )
 
             edf['Total Price'] = edf.apply(lambda row: calculated_results["edf_details_df"].loc[row.name, 'Total Price'] if row.name in calculated_results["edf_details_df"].index else 0, axis=1)
             edf['Unit Price'] = edf.apply(lambda row: calculated_results["edf_details_df"].loc[row.name, 'Unit Price'] if row.name in calculated_results["edf_details_df"].index else 0, axis=1)
 
-            mt = calculated_results["mat_sell"]
-            daily_cost = float(gs.get('daily_labor_cost', 1000))
-            raw_lt = calculated_results["labor_actual_cost"]
-            rounded_gt = calculated_results["rounded_grand_total"]
-            total_profit = calculated_results["total_profit"]
-            advance_amount = calculated_results["advance_amount"]
-            disp_lt = calculated_results["disp_lt"]
-
-            # Sync logic
-            if edf.to_dict(orient="records") != st.session_state[ssk]:
-                st.session_state[ssk] = edf.to_dict(orient="records")
-                st.rerun()
-
-            # --- Stock Check Alert System ---
-            missing_items_list = []
-            restock_data = []
+            # Retrieve calculated values (new structure)
+            tm_base = calculated_results["total_material_base_cost"]
+            tl_base = calculated_results["labor_actual_cost"]
+            tp_cost = calculated_results["total_project_cost"]
+            profit_val = calculated_results["total_profit"]
+            bill_amt = calculated_results["bill_amount"]
+            adv_amt = calculated_results["advance_amount"]
             
-            for index, row in edf.iterrows():
-                item_name = row.get('Item')
-                estimated_qty = float(row.get('Qty', 0))
-                available_stock = float(stock_map.get(item_name, 0.0))
-                
-                if estimated_qty > available_stock:
-                    deficit = estimated_qty - available_stock
-                    missing_items_list.append(f"{item_name}: Need {int(estimated_qty)}, Have {int(available_stock)}")
-                    restock_data.append({"item_name": item_name, "quantity": deficit, "cost": 0.0, "notes": "Auto-restock from Estimator"})
-            
-            if missing_items_list:
-                st.error("⚠️ **Low Stock Warning:** You do not have enough inventory for: " + ", ".join(missing_items_list) + ".")
-                if st.button("🚀 Place Order for Missing Items", key="auto_restock_btn", type="primary"):
-                    st.session_state['restock_queue'] = restock_data
-                    st.toast("Items added to Restock Queue! Go to Suppliers tab.", icon="📦")
-            
-            # --- End Stock Check Alert System ---
-
-            # Update dataframe with calculated prices from helper function
-            edf = calculated_results["edf_details_df"].copy()
+            daily_labor_cost = float(gs.get('daily_labor_cost', 1000))
 
             st.divider()
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Material", f"₹{mt:,.0f}"); c2.metric("Labor", f"₹{disp_lt:,.0f}"); c3.metric("Grand Total", f"₹{rounded_gt:,.0f}"); c4.metric("Total Profit", f"₹{total_profit:,.0f}"); c5.metric("Advance Required", f"₹{advance_amount:,.0f}")
             
-            cs, cp = st.columns(2)
+            # Layout: 4 Metrics with consistent styling
+            # 1. Cost (Metric + Expander) | 2. Profit | 3. Bill Amt | 4. Advance
+            
+            m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+            
+            with m_col1:
+                st.metric("Cost", f"₹{tp_cost:,.0f}")
+                with st.expander("Breakdown"):
+                    st.caption(f"Raw Material: ₹{tm_base:,.0f}")
+                    st.caption(f"Labor: ₹{tl_base:,.0f}")
+                    st.caption(f"Includes Days, Welders, Helpers")
+
+            with m_col2:
+                st.metric("Profit", f"₹{profit_val:,.0f}")
+            
+            with m_col3:
+                st.metric("Bill Amt", f"₹{bill_amt:,.0f}")
+                
+            with m_col4:
+                st.metric("Advance Req", f"₹{adv_amt:,.0f}")
+
+            
+            # Fixed button spacing - narrow gap
+            cs, cp, _ = st.columns([1, 1, 3]) # Left aligned, small gap
             if cs.button("💾 Save", type="primary"):
                 df_to_save = edf.copy()
                 for col in ['Qty', 'Base Rate', 'Total Price', "Unit Price"]:
                     df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
                 for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
                 cit = df_to_save.to_dict(orient="records")
-                sobj = {"items": cit, "days": dys, "margins": am if uc else None}
+                # Save profit_margin explicitly
+                sobj = {"items": cit, "days": dys, "welders": welders, "helpers": helper_count, "profit_margin": am}
                 try:
                     res = supabase.table("clients").update({"internal_estimate": sobj}).eq("id", tc['id']).execute()
                     if res and res.data: st.toast("Saved!", icon="✅")
                 except Exception as e:
                     st.error(f"Database Error: {e}")
             
-            pbytes = create_pdf(tc['name'], edf.to_dict(orient="records"), dys, disp_lt, rounded_gt, advance_amount, is_final=False)
+            # Use mapped variables for PDF generation
+            pbytes = create_pdf(tc['name'], edf.to_dict(orient="records"), dys, tl_base, bill_amt, adv_amt, is_final=False)
             sanitized_est_name = sanitize_filename(tc['name'])
             cp.download_button("📄 Download PDF", pbytes, f"Est_{sanitized_est_name}.pdf", "application/pdf", key=f"pe_{tc['id']}")
 # --- TAB 4: INVENTORY ---
@@ -778,14 +876,9 @@ with tab_inv:
         if inv_data:
             idf_metrics = pd.DataFrame(inv_data)
             total_items = len(idf_metrics)
-            idf_metrics['value'] = idf_metrics['stock_quantity'] * idf_metrics['base_rate']
-            total_inv_value = idf_metrics['value'].sum()
-            low_stock_count = len(idf_metrics[idf_metrics['stock_quantity'] < 10])
-            
-            m1, m2, m3 = st.columns(3)
+            # Key Metrics (Stock Value Removed)
+            m1 = st.container()
             m1.metric("Total Items", total_items)
-            m2.metric("Total Inventory Value", f"₹{total_inv_value:,.0f}")
-            m3.metric("Low Stock Items (<10)", low_stock_count, delta_color="inverse")
             st.divider()
     except: pass
 
@@ -814,12 +907,7 @@ with tab_inv:
             
             if st.form_submit_button("Add Item"):
                 try:
-                    # Enforce Integer for pcs
-                    qty_to_save = 0
-                    if iunit == 'pcs':
-                        qty_to_save = 0 # Initial stock is 0
-                    
-                    supabase.table("inventory").insert({"item_name": inm, "base_rate": ib_rate, "unit": iunit, "stock_quantity": qty_to_save}).execute()
+                    supabase.table("inventory").insert({"item_name": inm, "base_rate": ib_rate, "unit": iunit}).execute()
                     st.success(f"Item '{inm}' added!")
                     get_inventory.clear()
                     st.rerun()
@@ -835,13 +923,12 @@ with tab_inv:
             
             # Editable Dataframe
             edited_inv = st.data_editor(
-                idf[['Sr No', 'item_name', 'stock_quantity', 'base_rate', 'unit']],
+                idf[['Sr No', 'item_name', 'base_rate', 'unit']],
                 key="inv_editor",
                 use_container_width=True,
                 column_config={
                     "Sr No": st.column_config.NumberColumn("Sr No", disabled=True),
                     "item_name": st.column_config.TextColumn("Item Name"),
-                    "stock_quantity": st.column_config.NumberColumn("Stock", step=1),
                     "base_rate": st.column_config.NumberColumn("Base Rate", format="₹%.2f"),
                     "unit": st.column_config.SelectboxColumn("Unit", options=["pcs", "m", "ft", "cm", "in"])
                 },
@@ -857,14 +944,13 @@ with tab_inv:
                         c1, c2 = st.columns(2)
                         new_name = c1.text_input("Name", value=item['item_name'])
                         new_rate = c2.number_input("Base Rate", value=float(item['base_rate']))
-                        new_stock = st.number_input("Stock", value=float(item['stock_quantity']))
+                        # Stock removed
                         new_unit = st.selectbox("Unit", ["pcs", "m", "ft", "cm", "in"], index=["pcs", "m", "ft", "cm", "in"].index(item['unit']) if item['unit'] in ["pcs", "m", "ft", "cm", "in"] else 0)
                         
                         if st.form_submit_button("Update Item"):
                             supabase.table("inventory").update({
                                 "item_name": new_name,
                                 "base_rate": new_rate,
-                                "stock_quantity": new_stock,
                                 "unit": new_unit
                             }).eq("id", item['id']).execute()
                             st.success("Updated!")
@@ -1026,20 +1112,21 @@ with tab5:
                 
                 if st.form_submit_button("✅ Record Purchase"):
                     try:
-                        # Update Inventory Stock & Base Rate
+                        # Update Inventory Base Rate Only
                         curr_item = i_map[i_name]
-                        new_stock = float(curr_item.get('stock_quantity', 0)) + qty
+                        # new_stock logic removed as per user request
                         
-                        update_data = {"stock_quantity": new_stock}
+                        update_data = {}
                         if update_rate:
                             update_data["base_rate"] = rate
                         
-                        supabase.table("inventory").update(update_data).eq("id", curr_item['id']).execute()
+                        if update_data:
+                            supabase.table("inventory").update(update_data).eq("id", curr_item['id']).execute()
                         
                         # Log Purchase (Optional - if you had a purchases table)
                         # supabase.table("purchases").insert({...}).execute()
                         
-                        st.success(f"Purchase Recorded! New Stock: {new_stock}")
+                        st.success(f"Purchase Recorded! Rate Updated.")
                         get_inventory.clear()
                         st.rerun()
                     except Exception as e:
@@ -1620,29 +1707,40 @@ with tab4:
     except: sett = {}
     
     with st.form("settings_form"):
-        c1, c2, c3 = st.columns(3)
-        pm = c1.slider("Default Parts Margin (%)", 0, 100, int(sett.get('part_margin', 20)))
-        lm = c2.slider("Default Labor Margin (%)", 0, 100, int(sett.get('labor_margin', 20)))
-        em = c3.slider("Default Extra Margin (%)", 0, 100, int(sett.get('extra_margin', 10)))
+        st.markdown("#### 💰 Default Profit Margin")
+        pm = st.number_input("Profit Margin (%)", min_value=0, max_value=100, value=int(sett.get('profit_margin', 15)), step=1)
         
-        dlc = st.number_input("Daily Labor Cost (₹)", value=float(sett.get('daily_labor_cost', 1000.0)))
+        st.markdown("#### 🏗️ Labor Costs")
+        dlc = st.number_input("Daily Labor Cost (₹)", min_value=0, value=int(sett.get('daily_labor_cost', 1000)), step=100)
+        wr = st.number_input("Welder Daily Rate (₹)", min_value=0, value=int(sett.get('welder_daily_rate', 500)), step=50)
+        hr = st.number_input("Helper Daily Rate (₹)", min_value=0, value=int(sett.get('helper_daily_rate', 300)), step=50)
         
+        st.markdown("#### 💳 Advance Payment")
+        adv_pct = st.number_input("Advance Percentage (%)", min_value=0, max_value=100, value=int(sett.get('advance_percentage', 10)), step=5)
+
         if st.form_submit_button("💾 Save Settings"):
             try:
                 # Upsert settings (assuming id=1)
-                supabase.table("settings").upsert({"id": 1, "part_margin": pm, "labor_margin": lm, "extra_margin": em, "daily_labor_cost": dlc, "advance_margin": st.session_state.get('adv_margin_slider', 20)}).execute()
+                supabase.table("settings").upsert({
+                    "id": 1, 
+                    "profit_margin": pm, 
+                    "daily_labor_cost": dlc,
+                    "welder_daily_rate": wr,
+                    "helper_daily_rate": hr,
+                    "advance_percentage": adv_pct
+                }).execute()
                 st.success("Settings Saved!")
                 get_settings.clear()
                 st.rerun()
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Error saving settings: {e}")
 
     # Advance Payment Configuration & Explanation
     st.divider()
     st.markdown("### 🧮 Advance Payment Configuration")
     
     # Global Setting Slider
-    adv_m = st.slider("Default Advance Profit Margin (%)", 0, 100, int(sett.get('advance_margin', 20)), key='adv_margin_slider')
+    adv_m = st.slider("Default Advance Profit Margin (%)", 0, 100, int(sett.get('advance_percentage', 20)), key='adv_margin_slider')
     
     st.markdown("#### 👁️ Calculation Preview (Example)")
     st.caption("See how your margin affects the advance amount using fixed example values.")
@@ -1723,7 +1821,7 @@ with tab4:
                     st.success("Password Updated! Please re-login.")
                     time.sleep(1)
                     st.session_state.logged_in = False
-                    cookie_manager.delete("jugnoo_user")
+                    cookie_manager.delete("galaxy_user")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error: {e}")
@@ -1731,5 +1829,5 @@ with tab4:
     st.divider()
     if st.button("🚪 Log Out", type="primary", use_container_width=True):
         st.session_state.logged_in = False
-        cookie_manager.delete("jugnoo_user")
+        cookie_manager.delete("galaxy_user")
         st.rerun()

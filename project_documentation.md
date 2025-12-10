@@ -1,4 +1,4 @@
-# 📘 JugnooCRM: Comprehensive System Documentation
+# 📘 Galaxy CRM: Comprehensive System Documentation
 
 **Version:** 2.0.1 (Unified Master)
 **Scope:** User Guide (L3) & System Architecture (L4)
@@ -8,7 +8,7 @@
 # PART 1: User Guide & Feature Reference (L3)
 
 ## 1. Introduction
-JugnooCRM is a specialized Customer Relationship Management tool designed for managing client estimates, inventory, and project financials. It is built on a modern tech stack using **Streamlit** for the frontend and **Supabase** (PostgreSQL) for the backend.
+Galaxy CRM is a specialized Customer Relationship Management tool designed for managing client estimates, inventory, and project financials. It is built on a modern tech stack using **Streamlit** for the frontend and **Supabase** (PostgreSQL) for the backend.
 
 ## 2. User Interface & Features
 
@@ -518,7 +518,7 @@ footer { visibility: hidden; }
 
 | Context | Property | Value | Description |
 | :--- | :--- | :--- | :--- |
-| **Header Font (Primary)** | Font | `"Arial", 'B', 20` | Main title "**Jugnoo**". |
+| **Header Font (Primary)** | Font | `"Arial", 'B', 20` | Main title "**Galaxy CRM**". |
 | **Header Font (Secondary)** | Font | `"Arial", 'I', 10` | Subtitle "*Smart Automation Solutions*". |
 | **Header Separator** | Line | `X1: 10, Y: 28, X2: 200` | Horizontal line below header. |
 | **Document Title** | Font | `"Arial", 'B', 12` | e.g., "**Estimate For: Client X**". |
