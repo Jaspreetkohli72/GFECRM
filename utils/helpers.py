@@ -282,19 +282,13 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings, w
     advance_amount = int(round(bill_amount * (adv_margin_pct / 100.0)))
     
     # Update Item 'Total Price' to reflect Selling Price (Base + Profit Margin)
-    def calc_item_selling_price(row):
-        try:
-            qty = float(row.get('Qty', 0))
-            base = float(row.get('Base Rate', 0))
-            # unit_name = row.get('Unit', 'pcs')
-            # factor = CONVERSIONS.get(unit_name, 1.0)
-            base_cost = base * qty
-            return base_cost * mm
-        except: return 0.0
-
-    if not edf_details_df.empty:
-        edf_details_df['Total Price'] = edf_details_df.apply(calc_item_selling_price, axis=1)
-        edf_details_df['Unit Price'] = edf_details_df['Total Price'] / edf_details_df['Qty'].replace(0, 1)
+    # Update Item 'Total Price' to reflect Selling Price (Base + Profit Margin)
+    # [REMOVED AS PER USER REQUEST - SHOW COST PRICE ONLY]
+    # The dataframe already contains Cost Price from lines 228-230.
+    
+    # if not edf_details_df.empty:
+    #     edf_details_df['Total Price'] = edf_details_df.apply(calc_item_selling_price, axis=1)
+    #     edf_details_df['Unit Price'] = edf_details_df['Total Price'] / edf_details_df['Qty'].replace(0, 1)
 
     return {
         "total_material_base_cost": total_material_base_cost,
