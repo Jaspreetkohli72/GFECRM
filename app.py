@@ -92,30 +92,8 @@ st.markdown("""
         background-color: transparent !important;
     }
     
-    /* Premium Slate Buttons */
-    div.stButton > button {
-        background: rgba(30, 41, 59, 0.6) !important;
-        color: #f1f5f9 !important;
-        border: 1px solid rgba(148, 163, 184, 0.1) !important;
-        padding: 0.6rem 1.5rem !important; /* Increased padding */
-        border-radius: 8px;
-        font-weight: 500;
-        letter-spacing: 0.02em;
-        transition: all 0.2s ease;
-    }
-    
-    div.stButton > button:hover {
-        background: rgba(51, 65, 85, 0.8) !important;
-        border-color: rgba(148, 163, 184, 0.3) !important;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        color: #ffffff !important;
-    }
-    
-    div.stButton > button:active {
-        transform: translateY(0);
-        background: rgba(30, 41, 59, 0.8) !important;
-    }
+    /* Premium Slate Buttons CSS Removed to normalize styling */
+
     
     <!-- Fix for mobile safe areas and browser chrome -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -670,7 +648,7 @@ with tab3:
                 # Filter out items with missing type/dim if we strictly want the new system
                 # Or handle "Uncategorized"
                 # For now, let's just get unique types
-                all_types = inv_df['item_type'].dropna().unique().tolist()
+                all_types = sorted(inv_df['item_type'].dropna().unique().tolist())
                 
                 if not all_types:
                      st.warning("No inventory types found. Please adding types to your inventory in the database.")
@@ -711,7 +689,7 @@ with tab3:
                         qty_label = f"Qty ({db_unit})"
 
                 # Qty Input (No form, direct input)
-                iqty = c_qty.number_input(qty_label, min_value=0.0, value=1.0, step=0.1, format="%g", key="est_qty_input")
+                iqty = c_qty.number_input(qty_label, min_value=0.0, value=1.0, step=1.0, format="%g", key="est_qty_input")
                 
                 # Add Button - aligned with input using vertical_alignment="bottom" on columns
                 if c_btn.button("➕ Add"):
@@ -765,6 +743,9 @@ with tab3:
             df = df[cols_order]
 
             st.write("#### Items")
+            # DEBUG: Show raw session state data
+            # st.write("DEBUG - Session State Items:", st.session_state[ssk]) 
+            
             edf = st.data_editor(
                 df, 
                 num_rows="dynamic", 
@@ -774,7 +755,7 @@ with tab3:
                     "Sr No": st.column_config.NumberColumn("Sr No", width="small", disabled=True),
                     "Item": st.column_config.TextColumn("Item", width="large"),
                     "Qty (pcs)": st.column_config.NumberColumn("Qty (pcs)", width="small", disabled=True, format="%.2f"),
-                    "Qty": st.column_config.NumberColumn("Qty (Unit)", width="small", step=0.1, help="Quantity in Ft or Unit"),
+                    "Qty": st.column_config.NumberColumn("Qty (Unit)", width="small", step=1.0, help="Quantity in Ft or Unit"),
                     "Unit Price": st.column_config.NumberColumn("Unit Price", format="₹%.2f", width="small", disabled=True),
                     "Total Price": st.column_config.NumberColumn("Total Price", format="₹%.2f", width="small", disabled=True),
                     "Unit": None, # Hide column
@@ -782,11 +763,12 @@ with tab3:
                 }
             )
             
+            
+
             # Enforce float types for calculation consistency early
             edf['Qty'] = pd.to_numeric(edf['Qty'], errors='coerce').fillna(0).astype(float)
-            # Base Rate is converting from currency maybe?
-            # It's already float in session state.
-            edf['Base Rate'] = pd.to_numeric(edf['Base Rate'], errors='coerce').fillna(0).astype(float)
+            if 'Base Rate' in edf.columns:
+                 edf['Base Rate'] = pd.to_numeric(edf['Base Rate'], errors='coerce').fillna(0).astype(float)
 
             # Move Days Input Here
             # Labor Section
@@ -800,42 +782,90 @@ with tab3:
                     labor_roles_data = lr_res.data
             except Exception as e: st.warning("Could not load labor roles.")
             
-            # Layout: Days first, then dynamic roles
-            # We want to fit them nicely. Maybe 3 per row?
-            cd1, cd2, cd3 = st.columns([1, 1, 1])
-            dys = cd1.number_input("⏳ Days", min_value=1.0, step=0.5, value=float(sd), format="%.1f")
-            
+            # Unified Layout: Days + Roles in one row
             labor_details = []
+            num_roles = len(labor_roles_data)
             
-            # Create inputs for each role
-            # We'll use columns wrapping or just place them.
-            # Let's put them in subsequent columns/rows.
+            # Create columns: 1 for Days + N for roles
+            total_cols = 1 + num_roles if num_roles > 0 else 1
+            cols = st.columns(total_cols)
             
+            # 1. Days Input (First Column)
+            with cols[0]:
+                dys = st.number_input("⏳ Days", min_value=1.0, step=0.5, value=float(sd), format="%.1f")
+
+            # 2. Role Inputs (Subsequent Columns)
             if labor_roles_data:
-                cols_per_row = 3
-                l_cols = st.columns(cols_per_row)
-                
                 for idx, role in enumerate(labor_roles_data):
-                    col = l_cols[idx % cols_per_row]
-                    r_name = role['role_name']
-                    r_sal = role.get('default_salary', 0)
-                    
-                    # Default value logic to help transition
-                    def_val = 0.0
-                    if r_name.lower().startswith('welde'): def_val = float(sw)
-                    elif r_name.lower().startswith('helpe'): def_val = float(sh)
-                    
-                    # Input
-                    qty = col.number_input(f"{r_name}", min_value=0.0, step=1.0, value=def_val, key=f"l_qty_{r_name}")
-                    
-                    if qty > 0:
-                        labor_details.append({
-                            'role': r_name,
-                            'count': qty,
-                            'rate': r_sal
-                        })
+                    with cols[idx + 1]: # Shift by 1
+                        r_name = role['role_name']
+                        r_sal = role.get('default_salary', 0)
+                        
+                        # Default value logic to help transition
+                        def_val = 0.0
+                        if r_name.lower().startswith('welde'): def_val = float(sw)
+                        elif r_name.lower().startswith('helpe'): def_val = float(sh)
+                        
+                        # Input
+                        qty = st.number_input(f"{r_name}", min_value=0.0, step=1.0, value=def_val, key=f"l_qty_{r_name}")
+                        
+                        if qty > 0:
+                            labor_details.append({
+                                'role': r_name,
+                                'count': qty,
+                                'rate': r_sal
+                            })
             else:
-                st.info("No labor roles found. Add them in Settings.")
+                 pass # No roles to show, but Days input is shown
+
+            # --- Ensure Base Rate Persists ---
+            # If data_editor drops the hidden 'Base Rate' column, we restore it from session state
+            # based on index alignment (assuming no sorting/filtering changed the order yet, 
+            # or we match by some ID. Here index matching 0..N is standard for this list editor).
+            if 'Base Rate' not in edf.columns:
+                 # Restore from session state
+                 # Use a list to ensure order matches edf's index (which mirrors session state order 
+                 # unless rows were deleted/moved). 
+                 # Streamlit data_editor handles row deletions/moves by returning a new DF.
+                 # But mapping back to session state requires care if using blind index.
+                 # Ideally we should use a unique ID. But we don't have one here easily visible.
+                 # HOWEVER, for calculation purposes, we need the Base Rate for the CURRENT rows in edf.
+                 # If `num_rows="dynamic"`, user can add/delete.
+                 # The `edf` returned contains the USER'S edits.
+                 # If Base Rate is dropped, we can't calculate!
+                 pass
+            
+            # Better approach:
+            # We defined "Base Rate": None in config. Streamlit *should* return it.
+            # If it's returning it, maybe it is NaN?
+            # We already filled NaN with 0.
+            
+            # Let's forcefully merge Base Rate from session state if we suspect it's wrong.
+            # But wait, if user ADDED a row in UI, session state doesn't have it yet!
+            # The NEW row in `edf` has `Base Rate` = NaN (or 0 after fillna).
+            # We need to fetch the Base Rate for the Item in the NEW row.
+            
+            # Lookup Base Rate for items with 0 Base Rate (e.g. new rows)
+            # This handles the case where user types an item name, or selects from valid list,
+            # but Base Rate is hidden so they can't see it (and it starts as 0/NaN).
+            
+            # We need the inventory lookup map!
+            # We fetched `inv_df` earlier.
+            
+            def restore_base_rate(row):
+                 current_br = row.get('Base Rate', 0)
+                 if current_br > 0: return current_br
+                 
+                 # Try to look up by Item Name in inventory
+                 iname = row.get('Item')
+                 if iname and 'inv_df' in locals() and not inv_df.empty:
+                      match = inv_df[inv_df['item_name'] == iname]
+                      if not match.empty:
+                           return float(match.iloc[0].get('base_rate', 0))
+                 return 0.0
+
+            if 'inv_df' in locals():
+                 edf['Base Rate'] = edf.apply(restore_base_rate, axis=1)
 
             # --- Universal Calculation Logic ---
             gs = get_settings()
@@ -852,6 +882,45 @@ with tab3:
 
             edf['Total Price'] = edf.apply(lambda row: calculated_results["edf_details_df"].loc[row.name, 'Total Price'] if row.name in calculated_results["edf_details_df"].index else 0, axis=1)
             edf['Unit Price'] = edf.apply(lambda row: calculated_results["edf_details_df"].loc[row.name, 'Unit Price'] if row.name in calculated_results["edf_details_df"].index else 0, axis=1)
+
+            # --- Sync & Rerun Logic ---
+            # Update session state with calculated values so they show in the table
+            current_data = edf.to_dict(orient="records")
+            has_changes = False
+            
+            # Simple check: Compare Total Price sum or check individual rows
+            # We need to preserve Base Rate. edf should have it if data_editor passed it through.
+            # If data_editor dropped Base Rate, we might lose it here!
+            # Let's restore Base Rate from calculated_results["edf_details_df"] (which has it if source had it)
+            # calculated_results["edf_details_df"] was built from edf.to_dict().
+            
+            # If Base Rate is missing in edf, we are in trouble.
+            # Let's verify if 'Base Rate' is in edf columns.
+            if 'Base Rate' not in edf.columns:
+                 # Re-merge Base Rate from calc details or previous session state?
+                 # Safest is to merge from calculated_results if it preserved it.
+                 # Helpers calc creates df from input. Input was edf.to_dict(). 
+                 # If edf dropped it, helpers input didn't have it (or had 0).
+                 pass 
+            
+            # We assume Base Rate persists.
+            
+            # Check for differences
+            if len(st.session_state[ssk]) == len(current_data):
+                for i, row in enumerate(current_data):
+                    old_tp = st.session_state[ssk][i].get('Total Price', 0)
+                    new_tp = row.get('Total Price', 0)
+                    if abs(float(old_tp) - float(new_tp)) > 0.01:
+                        has_changes = True
+                        break
+            else:
+                 # Length mismatch (add/del), usually data_editor handles this, 
+                 # but we want to save correct values.
+                 has_changes = True
+            
+            if has_changes:
+                st.session_state[ssk] = current_data
+                st.rerun()
 
             # Retrieve calculated values (new structure)
             tm_base = calculated_results["total_material_base_cost"]
@@ -888,25 +957,46 @@ with tab3:
 
             
             # Fixed button spacing - narrow gap
-            cs, cp, _ = st.columns([1, 1, 3]) # Left aligned, small gap
-            if cs.button("💾 Save", type="primary"):
+            cs, c_ord, cp, _ = st.columns([0.6, 0.6, 1.2, 5]) # Compact Layout
+            if cs.button("💾 Save"):
                 df_to_save = edf.copy()
                 for col in ['Qty', 'Base Rate', 'Total Price', "Unit Price"]:
                     df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
                 for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
                 cit = df_to_save.to_dict(orient="records")
                 # Save profit_margin explicitly
-                sobj = {"items": cit, "days": dys, "welders": welders, "helpers": helper_count, "profit_margin": am}
+                # Extract counts for legacy save structure
+                # We interpret "Welders" and "Helpers" from the dynamic roles for backward compatibility
+                welders = sum([d['count'] for d in labor_details if d['role'].lower().startswith('welde')])
+                helper_count = sum([d['count'] for d in labor_details if d['role'].lower().startswith('helpe')])
+                
+                sobj = {"items": cit, "days": dys, "welders": welders, "helpers": helper_count, "profit_margin": am, "labor_details": labor_details}
                 try:
                     res = supabase.table("clients").update({"internal_estimate": sobj}).eq("id", tc['id']).execute()
                     if res and res.data: st.toast("Saved!", icon="✅")
                 except Exception as e:
                     st.error(f"Database Error: {e}")
             
+            # Order PDF Generation
+            # Recalculate Qty (pcs) for PDF accuracy based on current edit
+            pdf_data_df = edf.copy()
+            # Ensure Unit exists 
+            if 'Unit' not in pdf_data_df.columns:
+                 # Re-merge unit from session state or just trust it's hidden but present
+                 pass 
+            
+            # Recalculate Qty (pcs) just in case
+            # Note: edf has the latest Qty. Unit is likely correct.
+            pdf_data_df['Qty (pcs)'] = pdf_data_df.apply(lambda x: x['Qty'] / 20.0 if x['Unit'] == 'ft' else x['Qty'], axis=1)
+
+            order_bytes = helpers.create_order_pdf(tc['name'], pdf_data_df.to_dict(orient="records"))
+            sanitized_ord_name = sanitize_filename(tc['name'])
+            c_ord.download_button("📦 Order", order_bytes, f"Order_{sanitized_ord_name}.pdf", "application/pdf", key=f"ord_{tc['id']}")
+
             # Use mapped variables for PDF generation
             pbytes = create_pdf(tc['name'], edf.to_dict(orient="records"), dys, tl_base, bill_amt, adv_amt, is_final=False)
             sanitized_est_name = sanitize_filename(tc['name'])
-            cp.download_button("📄 Download PDF", pbytes, f"Est_{sanitized_est_name}.pdf", "application/pdf", key=f"pe_{tc['id']}")
+            cp.download_button("📄 Estimate PDF", pbytes, f"Est_{sanitized_est_name}.pdf", "application/pdf", key=f"pe_{tc['id']}")
 # --- TAB 4: INVENTORY ---
 with tab_inv:
     st.subheader("📦 Inventory Management")

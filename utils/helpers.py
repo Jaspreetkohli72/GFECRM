@@ -21,10 +21,9 @@ class PDFGenerator:
     def _add_header(self, title):
         self.pdf.add_page()
         self.pdf.set_font("Arial", 'B', 20)
-        self.pdf.cell(0, 10, "Galaxy CRM", ln=True, align='L')
-        self.pdf.set_font("Arial", 'I', 10)
-        self.pdf.cell(0, 6, "Smart Automation Solutions", ln=True, align='L')
-        self.pdf.line(10, 28, 200, 28)
+        self.pdf.cell(0, 10, "Galaxy Fabrication Experts", ln=True, align='L')
+        # Tagline removed as requested
+        self.pdf.line(10, 20, 200, 20) # Adjusted line position up since tagline is gone
         self.pdf.ln(15)
         self.pdf.set_font("Arial", 'B', 12)
         self.pdf.cell(0, 8, title, ln=True)
@@ -122,6 +121,39 @@ class PDFGenerator:
         pdf_output.write(pdf_string.encode('latin-1'))
         return pdf_output.getvalue()
 
+    def generate_order_list(self, client_name, items):
+        self._add_header(f"ORDER LIST - {client_name}")
+        
+        self.pdf.set_fill_color(230, 230, 250) # Light lavender
+        self.pdf.set_font("Arial", 'B', 10)
+        
+        # Columns: Sr No (15), Item (95), Qty pcs (40), Qty ft (40)
+        self.pdf.cell(15, 10, "Sr No", 1, 0, 'C', 1)
+        self.pdf.cell(95, 10, "Item Description", 1, 0, 'L', 1)
+        self.pdf.cell(40, 10, "Qty (pcs)", 1, 0, 'C', 1)
+        self.pdf.cell(40, 10, "Qty (feet)", 1, 1, 'C', 1)
+        
+        self.pdf.set_font("Arial", '', 10)
+        for idx, item in enumerate(items, 1):
+            name = str(item.get('Item', ''))
+            qty_pcs = float(item.get('Qty (pcs)', 0))
+            qty_raw = float(item.get('Qty', 0))
+            unit = str(item.get('Unit', ''))
+            
+            # Formatting
+            pcs_str = f"{qty_pcs:.2f}"
+            ft_str = f"{qty_raw:.2f}" if unit == 'ft' else "-"
+            
+            self.pdf.cell(15, 8, str(idx), 1, 0, 'C')
+            self.pdf.cell(95, 8, name[:50], 1, 0, 'L')
+            self.pdf.cell(40, 8, pcs_str, 1, 0, 'C')
+            self.pdf.cell(40, 8, ft_str, 1, 1, 'C')
+            
+        pdf_output = BytesIO()
+        pdf_string = self.pdf.output(dest='S')
+        pdf_output.write(pdf_string.encode('latin-1'))
+        return pdf_output.getvalue()
+
 def create_pdf(*args, **kwargs):
     pdf_gen = PDFGenerator()
     return pdf_gen.generate_client_invoice(*args, **kwargs)
@@ -129,6 +161,10 @@ def create_pdf(*args, **kwargs):
 def create_internal_pdf(*args, **kwargs):
     pdf_gen = PDFGenerator()
     return pdf_gen.generate_internal_report(*args, **kwargs)
+
+def create_order_pdf(*args, **kwargs):
+    pdf_gen = PDFGenerator()
+    return pdf_gen.generate_order_list(*args, **kwargs)
 
 
 def normalize_margins(margins_data, global_settings):
@@ -180,16 +216,18 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings, w
         try:
             qty = float(row.get('Qty', 0))
             base = float(row.get('Base Rate', 0))
-            unit_name = row.get('Unit', 'pcs')
-            factor = CONVERSIONS.get(unit_name, 1.0)
-            return base * qty * factor * mm
+            # unit_name = row.get('Unit', 'pcs')
+            # unit_name = row.get('Unit', 'pcs')
+            # factor = CONVERSIONS.get(unit_name, 1.0) # Removed factor: Rate is Per Unit
+            return base * qty 
         except (ValueError, TypeError):
             return 0.0
 
     edf_details_df = pd.DataFrame(edf_items_list)
     if not edf_details_df.empty:
         edf_details_df['Total Price'] = edf_details_df.apply(calc_total_item, axis=1)
-        edf_details_df['Unit Price'] = edf_details_df['Total Price'] / edf_details_df['Qty'].replace(0, 1)
+        # Unit Price should just be Base Rate as per user request
+        edf_details_df['Unit Price'] = edf_details_df['Base Rate'].apply(lambda x: float(x) if x else 0.0)
         mat_sell = float(edf_details_df['Total Price'].sum())
     else:
         mat_sell = 0.0
@@ -215,9 +253,9 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings, w
     def calculate_item_base_cost(row):
         qty = float(row.get('Qty', 0))
         base_rate = float(row.get('Base Rate', 0))
-        unit_name = row.get('Unit', 'pcs')
-        factor = CONVERSIONS.get(unit_name, 1.0)
-        return base_rate * qty * factor
+        # unit_name = row.get('Unit', 'pcs')
+        # factor = CONVERSIONS.get(unit_name, 1.0)
+        return base_rate * qty
     
     # Total Material Base Cost
     total_material_base_cost = float(edf_details_df.apply(calculate_item_base_cost, axis=1).sum()) if not edf_details_df.empty else 0.0
@@ -248,9 +286,9 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings, w
         try:
             qty = float(row.get('Qty', 0))
             base = float(row.get('Base Rate', 0))
-            unit_name = row.get('Unit', 'pcs')
-            factor = CONVERSIONS.get(unit_name, 1.0)
-            base_cost = base * qty * factor
+            # unit_name = row.get('Unit', 'pcs')
+            # factor = CONVERSIONS.get(unit_name, 1.0)
+            base_cost = base * qty
             return base_cost * mm
         except: return 0.0
 
@@ -265,6 +303,9 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings, w
         "total_profit": final_profit,
         "bill_amount": bill_amount,
         "advance_amount": advance_amount,
+        "mat_sell": mat_sell,
+        "disp_lt": labor_actual_cost,
+        "rounded_grand_total": bill_amount,
         "edf_details_df": edf_details_df
     }
 
@@ -272,10 +313,10 @@ def calculate_profit_row(row):
     """Calculates the profit for a single row in an estimate."""
     qty = float(row.get('Qty', 0))
     base_rate = float(row.get('Base Rate', 0))
-    unit = row.get('Unit', 'pcs')
+    # unit = row.get('Unit', 'pcs')
     total_sell = float(row.get('Total Sell Price', 0))
-    factor = CONVERSIONS.get(unit, 1.0)
-    total_cost = base_rate * qty * factor
+    # factor = CONVERSIONS.get(unit, 1.0)
+    total_cost = base_rate * qty
     return total_sell - total_cost
 
 def create_item_dataframe(items):
@@ -288,10 +329,29 @@ def create_item_dataframe(items):
     Returns:
         pd.DataFrame: A validated DataFrame with the required columns.
     """
-    df = pd.DataFrame(items)
+    # Normalize keys if needed (handle legacy 'base_rate' vs 'Base Rate')
+    normalized_items = []
+    for i in items:
+        # Create a copy to avoid mutating session state directly here
+        ni = i.copy()
+        if 'base_rate' in ni and 'Base Rate' not in ni:
+            ni['Base Rate'] = ni['base_rate']
+        if 'unit' in ni and 'Unit' not in ni:
+            ni['Unit'] = ni['unit']
+        if 'item' in ni and 'Item' not in ni:
+            ni['Item'] = ni['item']
+        normalized_items.append(ni)
+        
+    df = pd.DataFrame(normalized_items)
     for col in ["Qty", "Item", "Unit", "Base Rate", "Total Price", "Unit Price"]:
         if col not in df.columns:
             df[col] = "" if col in ["Item", "Unit"] else 0.0
+            
+    # Explicitly handle NaNs for numeric columns to avoid 'None' in UI
+    for col in ["Qty", "Base Rate", "Total Price", "Unit Price"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+
     column_order = ['Qty', 'Item', 'Unit', 'Base Rate', 'Unit Price', 'Total Price']
     df = df.reindex(columns=column_order, fill_value="")
     return df
