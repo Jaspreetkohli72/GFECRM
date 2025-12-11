@@ -154,21 +154,22 @@ def get_advance_percentage(settings):
     return float(settings.get('advance_percentage', 10.0))
 
 
-def calculate_estimate_details(edf_items_list, days, margins, global_settings, welders=0, helpers=0):
+def calculate_estimate_details(edf_items_list, days, margins, global_settings, welders=0, helpers=0, labor_details=None):
     """
     Calculates various financial details for an estimate.
     CENTRALIZED calculation - ensures consistency across all tabs.
 
     Args:
-        edf_items_list (list): A list of dictionaries representing the items in the estimate.
-        days (float): The number of labor days for the estimate.
-        margins (dict): A dictionary of margins to apply to the estimate.
-        global_settings (dict): A dictionary of global settings.
-        welders (int): Number of welders.
-        helpers (int): Number of helpers.
+        edf_items_list (list): A list of list items.
+        days (float): Labor days.
+        margins (dict): Margins.
+        global_settings (dict): Global settings.
+        welders (int): Legacy welder count.
+        helpers (int): Legacy helper count.
+        labor_details (list): List of dicts [{'role': name, 'count': val, 'rate': val}]
 
     Returns:
-        dict: A dictionary containing the calculated financial details.
+        dict: Financial details.
     """
     # Normalize margins to standard format
     profit_margin = normalize_margins(margins, global_settings)
@@ -194,25 +195,22 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings, w
         mat_sell = 0.0
 
     # Calculate labor cost
-    # Base Labor (General Team/Day?) or is 'Days' just the duration?
-    # Usually 'Days' is for the whole crew or a base charge.
-    # Current logic: Days * Daily Cost (which is likely the 'Foreman' or 'Base' rate)
-    # PLUS: Welders * Rate * Days
-    # PLUS: Helpers * Rate * Days
+    labor_actual_cost = 0.0
     
-    # Calculate labor cost
-    # Base Labor removed as per user request (purely Welder/Helper based now?)
-    # or just relying on specific rates.
-    
-    # base_daily_cost = float(global_settings.get('daily_labor_cost', 1000.0)) # Removed
-    welder_rate = float(global_settings.get('welder_daily_rate', 500.0))
-    helper_rate = float(global_settings.get('helper_daily_rate', 300.0))
-    
-    # cost_base_labor = float(days) * base_daily_cost # Removed
-    cost_welders = float(welders) * welder_rate * float(days)
-    cost_helpers = float(helpers) * helper_rate * float(days)
-    
-    labor_actual_cost = cost_welders + cost_helpers
+    if labor_details:
+        # New Dynamic System
+        for item in labor_details:
+            cnt = float(item.get('count', 0))
+            rate = float(item.get('rate', 0))
+            labor_actual_cost += cnt * rate * float(days)
+    else:
+        # Legacy Fallback
+        welder_rate = float(global_settings.get('welder_daily_rate', 500.0))
+        helper_rate = float(global_settings.get('helper_daily_rate', 300.0))
+        
+        cost_welders = float(welders) * welder_rate * float(days)
+        cost_helpers = float(helpers) * helper_rate * float(days)
+        labor_actual_cost = cost_welders + cost_helpers
 
     def calculate_item_base_cost(row):
         qty = float(row.get('Qty', 0))
@@ -234,8 +232,8 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings, w
     # 3. BILL AMOUNT
     # Cost + Profit
     raw_bill_amount = total_project_cost + profit_amount
-    # Rounding Bill Amount (Standard practice to round final bill)
-    bill_amount = math.ceil(raw_bill_amount / 100) * 100
+    # Rounding Bill Amount (User requested no rounding to 100, just integer)
+    bill_amount = int(round(raw_bill_amount))
     
     # Profit derived from rounded bill
     final_profit = bill_amount - total_project_cost
@@ -243,7 +241,7 @@ def calculate_estimate_details(edf_items_list, days, margins, global_settings, w
     # 4. ADVANCE REQ
     # %adv of bill amt
     adv_margin_pct = float(global_settings.get('advance_percentage', 20.0))
-    advance_amount = math.ceil((bill_amount * (adv_margin_pct / 100.0)) / 100) * 100
+    advance_amount = int(round(bill_amount * (adv_margin_pct / 100.0)))
     
     # Update Item 'Total Price' to reflect Selling Price (Base + Profit Margin)
     def calc_item_selling_price(row):

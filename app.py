@@ -791,22 +791,63 @@ with tab3:
             # Move Days Input Here
             # Labor Section
             st.write("#### Labor")
-            cd1, cd2, cd3, _ = st.columns([1, 1, 1, 2])
-            dys = cd1.number_input("⏳ Days", min_value=1, step=1, value=int(sd))
-            welders = cd2.number_input("👨‍🏭 Welders", min_value=0, step=1, value=int(sw))
-            helper_count = cd3.number_input("👷 Helpers", min_value=0, step=1, value=int(sh))
+            
+            # Fetch Dynamic Roles
+            labor_roles_data = []
+            try:
+                lr_res = get_staff_roles()
+                if lr_res and lr_res.data:
+                    labor_roles_data = lr_res.data
+            except Exception as e: st.warning("Could not load labor roles.")
+            
+            # Layout: Days first, then dynamic roles
+            # We want to fit them nicely. Maybe 3 per row?
+            cd1, cd2, cd3 = st.columns([1, 1, 1])
+            dys = cd1.number_input("⏳ Days", min_value=1.0, step=0.5, value=float(sd), format="%.1f")
+            
+            labor_details = []
+            
+            # Create inputs for each role
+            # We'll use columns wrapping or just place them.
+            # Let's put them in subsequent columns/rows.
+            
+            if labor_roles_data:
+                cols_per_row = 3
+                l_cols = st.columns(cols_per_row)
+                
+                for idx, role in enumerate(labor_roles_data):
+                    col = l_cols[idx % cols_per_row]
+                    r_name = role['role_name']
+                    r_sal = role.get('default_salary', 0)
+                    
+                    # Default value logic to help transition
+                    def_val = 0.0
+                    if r_name.lower().startswith('welde'): def_val = float(sw)
+                    elif r_name.lower().startswith('helpe'): def_val = float(sh)
+                    
+                    # Input
+                    qty = col.number_input(f"{r_name}", min_value=0.0, step=1.0, value=def_val, key=f"l_qty_{r_name}")
+                    
+                    if qty > 0:
+                        labor_details.append({
+                            'role': r_name,
+                            'count': qty,
+                            'rate': r_sal
+                        })
+            else:
+                st.info("No labor roles found. Add them in Settings.")
 
             # --- Universal Calculation Logic ---
             gs = get_settings()
             am_for_calc = am  # Use the margins already set above
-
+            
+            # Pass labor_details to helper
             calculated_results = helpers.calculate_estimate_details(
                 edf_items_list=edf.to_dict(orient="records"),
                 days=dys,
                 margins=am_for_calc,
                 global_settings=gs,
-                welders=welders,
-                helpers=helper_count
+                labor_details=labor_details # New Arg
             )
 
             edf['Total Price'] = edf.apply(lambda row: calculated_results["edf_details_df"].loc[row.name, 'Total Price'] if row.name in calculated_results["edf_details_df"].index else 0, axis=1)
@@ -1707,26 +1748,25 @@ with tab4:
     except: sett = {}
     
     with st.form("settings_form"):
-        st.markdown("#### 💰 Default Profit Margin")
-        pm = st.number_input("Profit Margin (%)", min_value=0, max_value=100, value=int(sett.get('profit_margin', 15)), step=1)
+        st.markdown("#### 💰 Default Margins")
+        # Row 1: Margins
+        c1, c2 = st.columns(2)
+        pm = c1.number_input("Profit Margin (%)", min_value=0, max_value=100, value=int(sett.get('profit_margin', 15)), step=1)
+        adv_pct = c2.number_input("Advance Percentage (%)", min_value=0, max_value=100, value=int(sett.get('advance_percentage', 10)), step=5)
         
-        st.markdown("#### 🏗️ Labor Costs")
-        dlc = st.number_input("Daily Labor Cost (₹)", min_value=0, value=int(sett.get('daily_labor_cost', 1000)), step=100)
-        wr = st.number_input("Welder Daily Rate (₹)", min_value=0, value=int(sett.get('welder_daily_rate', 500)), step=50)
-        hr = st.number_input("Helper Daily Rate (₹)", min_value=0, value=int(sett.get('helper_daily_rate', 300)), step=50)
-        
-        st.markdown("#### 💳 Advance Payment")
-        adv_pct = st.number_input("Advance Percentage (%)", min_value=0, max_value=100, value=int(sett.get('advance_percentage', 10)), step=5)
+        st.divider()
 
-        if st.form_submit_button("💾 Save Settings"):
+        # Submit Button (Centered/Narrower)
+        b_col1, b_col2, b_col3 = st.columns([1, 1, 1])
+        with b_col2:
+            submitted = st.form_submit_button("💾 Save Settings", use_container_width=True, type="primary")
+
+        if submitted:
             try:
                 # Upsert settings (assuming id=1)
                 supabase.table("settings").upsert({
                     "id": 1, 
                     "profit_margin": pm, 
-                    "daily_labor_cost": dlc,
-                    "welder_daily_rate": wr,
-                    "helper_daily_rate": hr,
                     "advance_percentage": adv_pct
                 }).execute()
                 st.success("Settings Saved!")
@@ -1735,49 +1775,32 @@ with tab4:
             except Exception as e:
                 st.error(f"Error saving settings: {e}")
 
-    # Advance Payment Configuration & Explanation
     st.divider()
-    st.markdown("### 🧮 Advance Payment Configuration")
-    
-    # Global Setting Slider
-    adv_m = st.slider("Default Advance Profit Margin (%)", 0, 100, int(sett.get('advance_percentage', 20)), key='adv_margin_slider')
-    
-    st.markdown("#### 👁️ Calculation Preview (Example)")
-    st.caption("See how your margin affects the advance amount using fixed example values.")
-    
-    # Fixed Example Values
-    ex_mat = 50000
-    ex_lab = 20000
-    ex_base = ex_mat + ex_lab
-    ex_profit = ex_base * (adv_m / 100)
-    ex_total = ex_base + ex_profit
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Example Base Cost", f"₹{ex_base:,.0f}", help="Material (50k) + Labor (20k)")
-    c2.metric("Profit Amount", f"₹{ex_profit:,.0f}", delta=f"{adv_m}% Margin")
-    c3.metric("Total Advance Required", f"₹{ex_total:,.0f}")
-    
-    st.info(f"Formula Applied: (Material + Labor) + {adv_m}% Profit")
 
-
-
-    st.divider()
+    # --- MANAGE STAFF ROLES (Promoted) ---
     st.subheader("👥 Manage Staff Roles")
     
     # Fetch roles
     roles_res = get_staff_roles()
-    current_roles = [r['role_name'] for r in roles_res.data] if roles_res and roles_res.data else []
+    roles_data = roles_res.data if roles_res and roles_res.data else []
+    current_role_names = [r['role_name'] for r in roles_data]
     
     # Add New Role
     with st.form("add_role_form"):
-        new_role = st.text_input("New Role Name")
+        c_ar1, c_ar2 = st.columns([2, 1])
+        new_role = c_ar1.text_input("New Role Name")
+        new_role_salary = c_ar2.number_input("Default Daily Salary (₹)", min_value=0, step=50, value=0)
+        
         if st.form_submit_button("Add Role"):
             if new_role:
-                if new_role in current_roles:
+                if new_role in current_role_names:
                     st.error("Role already exists.")
                 else:
                     try:
-                        supabase.table("staff_roles").insert({"role_name": new_role}).execute()
+                        supabase.table("staff_roles").insert({
+                            "role_name": new_role,
+                            "default_salary": new_role_salary
+                        }).execute()
                         st.success(f"Role '{new_role}' added!")
                         get_staff_roles.clear()
                         st.rerun()
@@ -1786,22 +1809,66 @@ with tab4:
             else:
                 st.error("Please enter a role name.")
     
-    # List and Delete Roles
-    if current_roles:
+    # List and Edit Roles
+    if roles_data:
         st.write("Current Roles:")
-        for role in current_roles:
-            c1, c2 = st.columns([3, 1])
-            c1.write(f"• {role}")
-            if c2.button("🗑️", key=f"del_role_{role}"):
-                try:
-                    supabase.table("staff_roles").delete().eq("role_name", role).execute()
-                    st.success(f"Role '{role}' deleted.")
-                    get_staff_roles.clear()
+        st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
+        
+
+        
+        # Callback for updates
+        def update_salary(key, r_name):
+            new_val = st.session_state[key]
+            try:
+                supabase.table("staff_roles").update({"default_salary": new_val}).eq("role_name", r_name).execute()
+                st.toast(f"Saved salary for {r_name}")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+        # Update Callback
+        def update_role_data(old_name, new_name, new_sal):
+            try:
+                if old_name != new_name:
+                    # PK Change: Update name and salary
+                    supabase.table("staff_roles").update({"role_name": new_name, "default_salary": new_sal}).eq("role_name", old_name).execute()
+                else:
+                    # Just Salary
+                    supabase.table("staff_roles").update({"default_salary": new_sal}).eq("role_name", old_name).execute()
+                
+                st.toast(f"Updated {new_name}")
+                get_staff_roles.clear()
+                if old_name != new_name:
+                    time.sleep(0.5)
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
+            except Exception as e:
+                st.error(f"Update failed: {e}")
+
+        for role in roles_data:
+            r_name = role['role_name']
+            r_sal = role.get('default_salary', 0)
+            
+            # Expander
+            with st.expander(f"**{r_name}**  (₹{int(r_sal)})"):
+                with st.form(key=f"edit_form_{r_name}"):
+                    c1, c2 = st.columns(2)
+                    new_r_name = c1.text_input("Role Name", value=r_name)
+                    new_r_sal = c2.number_input("Salary (₹)", min_value=0, step=50, value=int(r_sal))
+                    
+                    c_act1, c_act2 = st.columns([1, 1])
+                    if c_act1.form_submit_button("✅ Save Changes"):
+                        update_role_data(r_name, new_r_name, new_r_sal)
+                    
+                    if c_act2.form_submit_button("🗑️ Delete Role", type="secondary"):
+                        try:
+                            supabase.table("staff_roles").delete().eq("role_name", r_name).execute()
+                            st.success(f"Deleted {r_name}")
+                            get_staff_roles.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Delete failed: {e}")
+
     else:
-        st.info("No roles found or table missing. Please update database schema.")
+        st.info("No roles found. Add one above.")
 
     st.divider()
     st.subheader("🔐 Change Password")

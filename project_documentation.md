@@ -66,11 +66,11 @@ The core tool for generating quotes.
 
 ### Tab 7: Settings
 *   **Global Defaults**: Set standard margins for Parts, Labor, and Extra overheads.
-*   **Labor Cost**: Define the daily cost per laborer.
-*   **Global Defaults**: Set standard margins for Parts, Labor, and Extra overheads.
-*   **Labor Cost**: Define the daily cost per laborer.
 *   **Advance Config**: Set the global "Advance Profit Margin %". Includes an interactive calculator preview.
-*   **Manage Staff Roles**: Add new roles to the system dynamically (e.g., "Senior Technician").
+*   **Manage Staff Roles**:
+    *   **Add Roles**: Create new staff roles (e.g., "Senior Technician") with a default daily salary.
+    *   **Edit Roles**: Expandable cards to edit Role Name and Salary inline.
+    *   **Delete**: Remove unused roles.
 
 ### Tab 8: Staff Management
 *   **Team Roster**: View all staff members with a clean, card-based UI.
@@ -154,7 +154,8 @@ The core tool for generating quotes.
 | **Global** | **Default Parts Margin (%)** | Number Input | Int | Default margin for materials. |
 | **Global** | **Default Labor Margin (%)** | Number Input | Int | Default margin for labor. |
 | **Global** | **Default Extra Margin (%)** | Number Input | Int | Default overhead margin. |
-| **Global** | **Daily Labor Cost (₹)** | Number Input | Float | Cost per labor day (e.g., 1000). |
+| **Manage Roles** | **Role Name** | Text Input | Unique | Name of the staff role. |
+| **Manage Roles** | **Default Salary (₹)** | Number Input | Min 0 | Daily salary for this role. |
 | **Calculator** | **Total Estimate Value (₹)** | Number Input | Min 0, Step 1000 | Input for quick advance calculation. |
 | **Calculator** | **Advance Percentage** | Slider | 0-100 | Percentage to calculate advance. |
 
@@ -327,23 +328,8 @@ This table maps critical UI fields to their underlying database columns, providi
 
 | Application Field (UI Label) | PostgreSQL Column | Data Type | Constraint / Usage |
 | :--- | :--- | :--- | :--- |
-| **Role Name** | `role_name` | `TEXT` | Primary Key. Name of the role (e.g., Manager). |
-
-**Table: `staff`**
-
-| Application Field (UI Label) | PostgreSQL Column | Data Type | Constraint / Usage |
-| :--- | :--- | :--- | :--- |
-| **Full Name** | `name` | `TEXT` | Not Null. |
-| **Role** | `role` | `TEXT` | Not Null. |
-| **Phone Number** | `phone` | `TEXT` | |
-| **Daily Wage** | `salary` | `NUMERIC` | Default 0. Mapped from UI 'Daily Wage'. |
-| **Status** | `status` | `TEXT` | Default 'Available'. Options: 'Available', 'On Site'. |
-
-**Table: `staff_roles`**
-
-| Application Field (UI Label) | PostgreSQL Column | Data Type | Constraint / Usage |
-| :--- | :--- | :--- | :--- |
-| **Role Name** | `role_name` | `TEXT` | Primary Key. Name of the role (e.g., Manager). |
+| **Role Name** | `role_name` | `TEXT` | Primary Key. Name of the role. |
+| **Default Salary** | `default_salary` | `NUMERIC` | Default 0. Daily cost for this role. |
 
 **Table: `inventory`**
 
