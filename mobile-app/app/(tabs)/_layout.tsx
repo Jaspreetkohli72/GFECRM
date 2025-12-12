@@ -18,39 +18,53 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#60a5fa', // Blue-400
+        tabBarActiveTintColor: '#FF4B4B', // Streamlit Red
         tabBarStyle: {
-          backgroundColor: '#0f172a', // Slate-900 hardcoded for consistency with theme
-          borderTopColor: '#1e293b',
+          backgroundColor: '#0E1117', // Main Background
+          borderTopColor: '#262730', // Card Color for border
         },
         headerShown: false,
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Dashboard',
-          tabBarIcon: ({ color }) => <TabBarIcon name="dashboard" color={color} />,
+          title: 'Home',
+          tabBarIcon: ({ color }) => <FontAwesome name="home" size={24} color={color} />,
         }}
       />
       <Tabs.Screen
         name="projects"
         options={{
-          title: 'Projects',
-          tabBarIcon: ({ color }) => <TabBarIcon name="folder" color={color} />,
+          title: 'Clients',
+          tabBarIcon: ({ color }) => <FontAwesome name="users" size={24} color={color} />,
         }}
       />
       <Tabs.Screen
         name="estimator"
         options={{
           title: 'Estimator',
-          tabBarIcon: ({ color }) => <TabBarIcon name="calculator" color={color} />,
+          tabBarIcon: ({ color }) => <FontAwesome name="calculator" size={24} color={color} />,
         }}
       />
       <Tabs.Screen
+        name="inventory"
+        options={{
+          title: 'Inventory',
+          tabBarIcon: ({ color }) => <FontAwesome name="list" size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="menu"
+        options={{
+          title: 'Menu',
+          tabBarIcon: ({ color }) => <FontAwesome name="bars" size={24} color={color} />,
+        }}
+      />
+      {/* Hidden tabs */}
+      <Tabs.Screen
         name="settings"
         options={{
-          title: 'Settings',
-          tabBarIcon: ({ color }) => <TabBarIcon name="cog" color={color} />,
+          href: null,
         }}
       />
     </Tabs>

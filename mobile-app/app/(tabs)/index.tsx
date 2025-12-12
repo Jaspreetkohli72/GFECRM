@@ -1,55 +1,61 @@
-import { ScrollView, Text, View, RefreshControl } from 'react-native';
+import { ScrollView, Text, View, RefreshControl, TouchableOpacity } from 'react-native';
 import { useEffect, useState } from 'react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { DeepSpaceBackground } from '@/components/ui/DeepSpaceBackground';
 import { supabase } from '@/utils/supabaseClient';
-import { PieChart } from 'react-native-gifted-charts';
+import { FontAwesome } from '@expo/vector-icons';
 
 export default function DashboardScreen() {
   const [metrics, setMetrics] = useState({
     totalClients: 0,
     activeProjects: 0,
-    completionRate: 0,
-    totalRevenue: 0,
-    matCost: 0,
-    laborCost: 0
+    completionRate: 0
   });
-  const [refreshing, setRefreshing] = useState(false);
   const [recentProjects, setRecentProjects] = useState<any[]>([]);
+  const [topClients, setTopClients] = useState<any[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchDashboard = async () => {
     setRefreshing(true);
     try {
-      // Clients
-      const { count: clientCount } = await supabase.from('clients').select('*', { count: 'exact', head: true });
+      // 1. Clients & Top Clients
+      // Fetch all clients to calculate stats and top 5
+      const { data: clients, error: clientError } = await supabase
+        .from('clients')
+        .select('name, status, final_settlement_amount')
+        .order('final_settlement_amount', { ascending: false }); // Top value first
 
-      // Projects
-      const { data: projects } = await supabase.from('projects').select('*, clients(name), project_types(type_name)').order('created_at', { ascending: false });
-
-      if (projects) {
-        const total = projects.length;
-        const active = projects.filter(p => !['Closed', 'Work Done'].includes(p.status)).length;
-        const closed = total - active;
-        const rate = total > 0 ? (closed / total) * 100 : 0;
-
-        // Finances (Simulated from internal_estimate for now as per app.py logic roughly)
-        // app.py used 'final_settlement_amount' for Revenue
-        const revenue = projects.reduce((acc, p) => acc + (p.final_settlement_amount || 0), 0);
-
-        // For logic port, we'd need to parse internal_estimate for every project to get cost split. 
-        // For MVP Dashboard, we'll just show what we can easily.
+      if (clients) {
+        const total = clients.length;
+        // Active definition: Not Closed, Not Work Done
+        const activeCount = clients.filter(c => !['Closed', 'Work Done'].includes(c.status || '')).length;
+        const closedCount = total - activeCount;
+        const rate = total > 0 ? (closedCount / total) * 100 : 0;
 
         setMetrics({
-          totalClients: clientCount || 0,
-          activeProjects: active,
-          completionRate: rate,
-          totalRevenue: revenue,
-          matCost: 0, // Placeholder
-          laborCost: 0 // Placeholder
+          totalClients: total,
+          activeProjects: activeCount,
+          completionRate: rate
         });
 
-        setRecentProjects(projects.slice(0, 5));
+        // Top 5 Clients by Value
+        setTopClients(clients.slice(0, 5));
       }
+
+      // 2. Recent Activity (Projects created recently)
+      // Actually app.py "Recent Activity" is client updates? 
+      // "Feed of the 5 most recent client updates." (Usually created_at or updated_at)
+      // We will fetch 5 most recently updated clients.
+      const { data: recent } = await supabase
+        .from('clients')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (recent) {
+        setRecentProjects(recent);
+      }
+
     } catch (e) {
       console.error(e);
     } finally {
@@ -61,11 +67,6 @@ export default function DashboardScreen() {
     fetchDashboard();
   }, []);
 
-  const pieData = [
-    { value: metrics.activeProjects, color: '#3b82f6', text: `${metrics.activeProjects}` },
-    { value: metrics.totalClients, color: '#22c55e', text: `${metrics.totalClients}` }
-  ];
-
   return (
     <DeepSpaceBackground>
       <ScrollView
@@ -75,63 +76,57 @@ export default function DashboardScreen() {
       >
         <Text className="text-3xl font-bold text-white mb-6 mt-10">Dashboard</Text>
 
-        {/* Metrics Row */}
-        <View className="flex-row gap-4 mb-6">
-          <GlassCard className="flex-1">
-            <Text className="text-slate-400 text-xs uppercase font-bold">Total Clients</Text>
+        {/* Summary Metrics */}
+        <View className="flex-row gap-3 mb-6">
+          <GlassCard className="flex-1 items-center">
+            <Text className="text-muted text-xs uppercase font-bold text-center">Total Clients</Text>
             <Text className="text-2xl font-bold text-white mt-1">{metrics.totalClients}</Text>
           </GlassCard>
-          <GlassCard className="flex-1">
-            <Text className="text-slate-400 text-xs uppercase font-bold">Active Proj</Text>
+          <GlassCard className="flex-1 items-center">
+            <Text className="text-muted text-xs uppercase font-bold text-center">Active</Text>
             <Text className="text-2xl font-bold text-blue-400 mt-1">{metrics.activeProjects}</Text>
           </GlassCard>
-          <GlassCard className="flex-1">
-            <Text className="text-slate-400 text-xs uppercase font-bold">Completion</Text>
+          <GlassCard className="flex-1 items-center">
+            <Text className="text-muted text-xs uppercase font-bold text-center">Completion</Text>
             <Text className="text-2xl font-bold text-green-400 mt-1">{metrics.completionRate.toFixed(0)}%</Text>
           </GlassCard>
         </View>
 
-        {/* Chart Section */}
-        <GlassCard className="mb-6 items-center">
-          <Text className="text-white font-bold mb-4 self-start">Project Distribution</Text>
-          <View className="flex-row items-center justify-between w-full">
-            <PieChart
-              data={pieData}
-              donut
-              radius={60}
-              innerRadius={40}
-              showText
-              textColor="white"
-            />
-            <View className="flex-1 ml-8">
-              <View className="flex-row items-center mb-2">
-                <View className="w-3 h-3 bg-blue-500 rounded-full mr-2" />
-                <Text className="text-slate-300">Active Projects</Text>
+        {/* Top Clients */}
+        <Text className="text-xl font-bold text-white mb-4">Top Clients</Text>
+        <GlassCard className="mb-6 p-0 overflow-hidden">
+          {topClients.map((client, index) => (
+            <View key={index} className={`flex-row justify-between items-center p-4 ${index !== topClients.length - 1 ? 'border-b border-border' : ''}`}>
+              <View className="flex-row items-center gap-3">
+                <View className="w-8 h-8 rounded-full bg-slate-700 items-center justify-center">
+                  <Text className="text-white font-bold">{index + 1}</Text>
+                </View>
+                <Text className="text-white font-semibold">{client.name}</Text>
               </View>
-              <View className="flex-row items-center">
-                <View className="w-3 h-3 bg-green-500 rounded-full mr-2" />
-                <Text className="text-slate-300">Total Clients</Text>
-              </View>
+              <Text className="text-green-400 font-bold">₹{(client.final_settlement_amount || 0).toLocaleString()}</Text>
             </View>
-          </View>
+          ))}
+          {topClients.length === 0 && <Text className="text-muted p-4 text-center">No data available</Text>}
         </GlassCard>
 
         {/* Recent Activity */}
-        <Text className="text-xl font-bold text-white mb-4">Recent Projects</Text>
+        <Text className="text-xl font-bold text-white mb-4">Recent Activity</Text>
         <View className="gap-3">
           {recentProjects.map(p => (
             <GlassCard key={p.id} className="flex-row items-center justify-between">
               <View>
-                <Text className="text-white font-bold">{p.project_types?.type_name || 'Unknown Project'}</Text>
-                <Text className="text-slate-400 text-sm">{p.clients?.name || 'Unknown Client'}</Text>
+                <Text className="text-white font-bold">{p.name}</Text>
+                <Text className="text-muted text-xs">{p.phone || 'No Phone'}</Text>
               </View>
               <View className="items-end">
-                <Text className={`font-bold ${p.status === 'Closed' ? 'text-green-500' : 'text-yellow-500'}`}>{p.status}</Text>
-                <Text className="text-slate-500 text-xs">{new Date(p.created_at).toLocaleDateString()}</Text>
+                <View className={`px-2 py-1 rounded bg-slate-800`}>
+                  <Text className="text-sky-400 text-xs font-bold">{p.status || 'New'}</Text>
+                </View>
               </View>
             </GlassCard>
           ))}
         </View>
+
       </ScrollView>
     </DeepSpaceBackground>
   );
