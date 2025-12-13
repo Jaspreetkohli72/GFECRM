@@ -580,9 +580,15 @@ with tab2:
     # 2. Client List
     try:
         current_clients_res = get_clients()
-        # Fetch all projects for history
+                # Fetch all projects for history
         all_projects_res = get_projects()
         all_projects = all_projects_res.data if all_projects_res and all_projects_res.data else []
+        
+        # Fetch Project Types for mapping
+        try:
+            pt_res = get_project_types()
+            pt_map = {p['id']: p['type_name'] for p in pt_res.data} if pt_res and pt_res.data else {}
+        except: pt_map = {}
 
         if current_clients_res and current_clients_res.data:
             client_list = current_clients_res.data
@@ -591,7 +597,7 @@ with tab2:
                 with st.expander(f"👤 {client['name']}  ({client.get('phone', 'N/A')})"):
                     # Edit Form
                     with st.form(f"edit_client_{client['id']}"):
-                        ec1, ec2, ec3 = st.columns([1.5, 1, 1]) # Adjusted columns
+                        ec1, ec2, ec3 = st.columns([1.5, 1, 1])
                         enm = ec1.text_input("Name", value=client['name'])
                         eph = ec2.text_input("Phone", value=client.get('phone', ''))
                         ead = st.text_area("Address", value=client.get('address', ''))
@@ -614,19 +620,21 @@ with tab2:
                     c_projs = [p for p in all_projects if p.get('client_id') == client['id']]
                     
                     if c_projs:
+                        # Enrich with Project Name from Type ID
+                        for p in c_projs:
+                            pid = p.get('project_type_id')
+                            p['project_name'] = pt_map.get(pid, "Unknown Project")
+
                         c_df = pd.DataFrame(c_projs)
                         # Ensure basic columns exist
                         cols_to_show = ['project_name', 'status', 'created_at']
-                        if 'est_val' not in c_df.columns and 'internal_estimate' in c_df.columns:
-                             # Quick calc for display if needed, or just show basic info
-                             pass
                         
                         st.dataframe(
                             c_df[cols_to_show], 
                             column_config={
                                 "project_name": "Project",
                                 "status": "Status",
-                                "created_at": st.column_config.DateColumn("Created")
+                                "created_at": st.column_config.DateColumn("Created", format="YYYY-MM-DD")
                             },
                             use_container_width=True, 
                             hide_index=True
