@@ -621,14 +621,24 @@ with tab2:
                                 
                         st.markdown("---")
                         if st.form_submit_button("🗑️ Delete Client", type="primary"):
-                            if proj_count > 0:
-                                st.error(f"Cannot delete client with {proj_count} associated projects. Please delete the projects first.")
+                            # Safety Check: Allow deletion if projects are only "Draft"
+                            non_draft_projs = [p for p in c_projs if p.get('status') != "Draft"]
+                            
+                            if len(non_draft_projs) > 0:
+                                st.error(f"Cannot delete client with {len(non_draft_projs)} active/completed projects. Please delete them first.")
                             else:
                                 try:
+                                    # 1. Delete associated Draft projects (to prevent FK errors or orphans)
+                                    if len(c_projs) > 0:
+                                        supabase.table("projects").delete().eq("client_id", client['id']).execute()
+                                    
+                                    # 2. Delete Client
                                     supabase.table("clients").delete().eq("id", client['id']).execute()
                                     st.success(f"Client '{client['name']}' deleted!")
                                     time.sleep(0.5)
                                     get_clients.clear()
+                                    # Also clear projects cache as we might have deleted drafts
+                                    get_projects.clear() 
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Deletion failed: {e}")
