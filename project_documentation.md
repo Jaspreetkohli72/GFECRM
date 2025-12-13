@@ -108,6 +108,7 @@ The core tool for generating quotes.
 ### Tab 2: Clients
 *   **Clients Directory**: View a list of all clients in expandable cards, showing their name and **total project count**.
 *   **Edit Details**: Expand any client card to edit their Name, Phone, or Address inline.
+*   **Delete Client**: Option to delete a client (only available if they have 0 associated projects).
 *   **Project History**: Displays a table of all projects associated with the client.
 *   **Validation**: Phone numbers are strictly validated (digits, spaces, +, - only).
 

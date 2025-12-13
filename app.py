@@ -606,6 +606,7 @@ with tab2:
                         eph = ec2.text_input("Phone", value=client.get('phone', ''))
                         ead = st.text_area("Address", value=client.get('address', ''))
                         
+                        
                         if st.form_submit_button("Update Details"):
                             try:
                                 supabase.table("clients").update({
@@ -617,6 +618,20 @@ with tab2:
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error: {e}")
+                                
+                        st.markdown("---")
+                        if st.form_submit_button("🗑️ Delete Client", type="primary"):
+                            if proj_count > 0:
+                                st.error(f"Cannot delete client with {proj_count} associated projects. Please delete the projects first.")
+                            else:
+                                try:
+                                    supabase.table("clients").delete().eq("id", client['id']).execute()
+                                    st.success(f"Client '{client['name']}' deleted!")
+                                    time.sleep(0.5)
+                                    get_clients.clear()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Deletion failed: {e}")
 
                     # Project History
                     st.markdown("#### 📂 Project History")
