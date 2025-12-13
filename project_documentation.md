@@ -105,13 +105,11 @@ The core tool for generating quotes.
 | **Payment** | **Final Amount Received** | Number Input | Min 0, Step 100 | Record final settlement. Defaults to rounded Grand Total. |
 | **Manage Estimate** | **Data Editor** | Table | Dynamic Rows | Edit `Qty` (Step 0.1) and `Base Rate`. `Item` name is editable. |
 
-### Tab 2: New Client
-| Field Label | Type | Constraints | Purpose |
-| :--- | :--- | :--- | :--- |
-| **Client Name** | Text Input | None | Name of the new client. |
-| **Phone** | Text Input | Max 15 chars | Contact number. Validated for digits/symbols. |
-| **Address** | Text Area | None | Physical address for the project. |
-| **Google Maps Link** | Text Input | None | URL for location. Can be auto-filled via "Paste Location" button. |
+### Tab 2: Clients
+*   **Clients Directory**: View a list of all clients in expandable cards, showing their name and phone number.
+*   **Edit Details**: Expand any client card to edit their Name, Phone, or Address inline.
+*   **Project History**: Displays a table of all projects associated with the client.
+*   **Validation**: Phone numbers are strictly validated (digits, spaces, +, - only).
 
 ### Tab 3: Estimator
 | Section | Field Label | Type | Constraints | Purpose |

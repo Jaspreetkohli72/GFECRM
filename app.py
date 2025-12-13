@@ -242,7 +242,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # Define Tabs
-tab1, tab_proj, tab2, tab3, tab_inv, tab5, tab8, tab6, tab4 = st.tabs(["📋 Dashboard", "🏗️ New Project", "➕ New Client", "🧮 Estimator", "📦 Inventory", "🚚 Suppliers", "👥 Staff", "📈 P&L", "⚙️ Settings"])
+tab1, tab_proj, tab2, tab3, tab_inv, tab5, tab8, tab6, tab4 = st.tabs(["📋 Dashboard", "🏗️ New Project", "👤 Clients", "🧮 Estimator", "📦 Inventory", "🚚 Suppliers", "👥 Staff", "📈 P&L", "⚙️ Settings"])
 
 # --- TAB 1: DASHBOARD ---
 with tab1:
@@ -302,7 +302,7 @@ with tab1:
         else: st.info("No projects yet.")
     
     with c_top:
-        st.markdown("#### 🏆 Top Projects (Value)")
+        st.markdown("#### 🏆 Top Clients (Value)")
         if not projects_df.empty and 'internal_estimate' in projects_df.columns:
             def get_val(x):
                 try: 
@@ -315,8 +315,15 @@ with tab1:
                 except: return 0
             
             projects_df['est_val'] = projects_df['internal_estimate'].apply(get_val)
-            top_df = projects_df.sort_values('est_val', ascending=False).head(5)
-            st.dataframe(top_df[['client_name', 'type_name', 'est_val']], column_config={"client_name": "Client", "type_name": "Type", "est_val": st.column_config.NumberColumn("Est. Value", format="₹%.2f")}, hide_index=True, use_container_width=True)
+            
+            # Aggregate by Client
+            top_clients = projects_df.groupby('client_name')['est_val'].sum().reset_index()
+            top_clients = top_clients.sort_values('est_val', ascending=False).head(5)
+            
+            st.dataframe(top_clients, column_config={
+                "client_name": "Client", 
+                "est_val": st.column_config.NumberColumn("Total Est. Value", format="₹%.2f")
+            }, hide_index=True, use_container_width=True)
         else: st.info("No data.")
     
     st.markdown("---")
@@ -436,7 +443,7 @@ with tab_proj:
     if st.session_state['proj_creation_mode'] in mode_opts:
         curr_idx = mode_opts.index(st.session_state['proj_creation_mode'])
         
-    p_mode = st.radio("Select Action", mode_opts, horizontal=True, index=curr_idx, key="proj_mode_ui")
+    p_mode = st.radio("Select Action", mode_opts, horizontal=True, index=curr_idx)
     
     # Sync UI change back to state
     if p_mode != st.session_state['proj_creation_mode']:
@@ -445,7 +452,6 @@ with tab_proj:
 
     if p_mode == "New Client":
         st.markdown("### 👤 New Client Details")
-        st.info("Create a new client here. You will be able to add project details immediately after.")
         
         # Using a form to group inputs
         with st.form("new_client_proj_tab"):
@@ -455,32 +461,32 @@ with tab_proj:
             ad = st.text_area("Address")
             
             if st.form_submit_button("Create Client & Continue", type="primary", use_container_width=True):
-                if not nm or not ph: 
-                    st.error("Client Name and Phone are required.")
-                elif ph and not ph.replace("+", "").replace("-", "").replace(" ", "").isdigit():
-                    st.error("Invalid Phone Number.")
-                else:
-                    try:
-                        # Check existence
-                        exist = supabase.table("clients").select("name").eq("name", nm).execute()
-                        if exist.data: 
-                            st.error(f"Client '{nm}' already exists.")
-                        else:
-                            data = {
-                                "name": nm, "phone": ph, "address": ad,
-                                "status": "New Lead", "created_at": datetime.now().isoformat()
-                            }
-                            res = supabase.table("clients").insert(data).execute()
-                            if res and res.data:
-                                st.session_state['last_created_client'] = nm
-                                # Auto-switch to Existing Client mode
-                                st.session_state['proj_creation_mode'] = "Existing Client"
-                                st.success(f"Client '{nm}' Added! Proceeding to Project Details...")
-                                get_clients.clear()
-                                time.sleep(0.5)
-                                st.rerun()
-                            else: st.error("Save Failed.")
-                    except Exception as e: st.error(f"Database Error: {e}")
+                    if not nm or not ph: 
+                        st.error("Client Name and Phone are required.")
+                    elif ph and not ph.replace("+", "").replace("-", "").replace(" ", "").isdigit():
+                        st.error("Invalid Phone Number.")
+                    else:
+                        try:
+                            # Check existence
+                            exist = supabase.table("clients").select("name").eq("name", nm).execute()
+                            if exist.data: 
+                                st.error(f"Client '{nm}' already exists.")
+                            else:
+                                data = {
+                                    "name": nm, "phone": ph, "address": ad,
+                                    "status": "New Lead", "created_at": datetime.now().isoformat()
+                                }
+                                res = supabase.table("clients").insert(data).execute()
+                                if res and res.data:
+                                    st.session_state['last_created_client'] = nm
+                                    # Auto-switch to Existing Client mode
+                                    st.session_state['proj_creation_mode'] = "Existing Client"
+                                    st.success(f"Client '{nm}' Added! Proceeding to Project Details...")
+                                    get_clients.clear()
+                                    time.sleep(0.5)
+                                    st.rerun()
+                                else: st.error("Save Failed.")
+                        except Exception as e: st.error(f"Database Error: {e}")
 
     else: # Existing Client
         # 1. Select Client
@@ -497,7 +503,8 @@ with tab_proj:
                  def_client_idx = list(client_opts.keys()).index(st.session_state['last_created_client'])
             except: pass
     
-        sel_client_name = st.selectbox("Select Client", list(client_opts.keys()), index=def_client_idx, key="proj_client_sel")
+        c_sel1, c_sel2 = st.columns(2)
+        sel_client_name = c_sel1.selectbox("Select Client", list(client_opts.keys()), index=def_client_idx, key="proj_client_sel")
         
         if sel_client_name:
             client_id = client_opts[sel_client_name]
@@ -512,38 +519,21 @@ with tab_proj:
             if not pt_opts:
                 st.warning("No Project Types found. Please add them in the database.")
             
-            c_p1, c_p2 = st.columns(2)
-            sel_pt_name = c_p1.selectbox("Project Type", list(pt_opts.keys()), key="proj_type_sel")
+            sel_pt_name = c_sel2.selectbox("Project Type", list(pt_opts.keys()), key="proj_type_sel")
             
             # 3. Measurements
-            meas = c_p2.text_area("Measurements / Notes", height=100)
+            if 'proj_meas_key' not in st.session_state: st.session_state.proj_meas_key = 0
+            meas = st.text_area("Measurements / Notes", height=100, key=f"meas_{st.session_state.proj_meas_key}")
             
-            # 4. Photos (Camera + Upload)
-            st.write("📸 Site Photos")
-            col_cam, col_up = st.columns(2)
-            
-            # Camera Toggle
-            with col_cam:
-                if 'show_cam_widget' not in st.session_state: st.session_state.show_cam_widget = False
-                
-                # Use columns to align button
-                if st.button("📷 Open Camera", key="btn_open_cam"):
-                    st.session_state.show_cam_widget = not st.session_state.show_cam_widget
-                    st.rerun()
-                
-                cam_pic = None
-                if st.session_state.show_cam_widget:
-                    cam_pic = st.camera_input("Take Photo")
-
-            up_pics = col_up.file_uploader("Upload Photos", accept_multiple_files=True, type=['jpg', 'png', 'jpeg'])
+            # 4. Photos (Upload Only)
+            up_pics = st.file_uploader("Upload Photos", accept_multiple_files=True, type=['jpg', 'png', 'jpeg'])
             
             # Save Logic
-            if st.button("💾 Save Project", type="primary", use_container_width=True):
+            c_save, c_save_add = st.columns(2)
+            
+            def save_project(keep_client_selection=False):
                 if sel_pt_name:
                     pt_id = pt_opts[sel_pt_name]
-                    
-                    # Photo Placeholder 
-                    # (In a real app, we'd upload `cam_pic` and `up_pics` to Supabase Storage and get URLs)
                     
                     new_proj = {
                         "client_id": client_id,
@@ -559,6 +549,17 @@ with tab_proj:
                         supabase.table("projects").insert(new_proj).execute()
                         st.success(f"Project '{sel_pt_name}' created for {sel_client_name}!")
                         get_projects.clear()
+                        
+                        if keep_client_selection:
+                            st.session_state['last_created_client'] = sel_client_name
+                        else:
+                            if 'last_created_client' in st.session_state:
+                                del st.session_state['last_created_client']
+
+                        # Reset textual inputs
+                        if 'proj_meas_key' not in st.session_state: st.session_state.proj_meas_key = 0
+                        st.session_state.proj_meas_key += 1
+
                         time.sleep(1)
                         st.rerun()
                     except Exception as e:
@@ -566,74 +567,76 @@ with tab_proj:
                 else:
                     st.error("Please select a project type.")
 
+            if c_save.button("💾 Save Project", type="primary", use_container_width=True):
+                save_project(keep_client_selection=True)
+
+            if c_save_add.button("➕ Add Another Project", type="secondary", use_container_width=True):
+                save_project(keep_client_selection=True)
+
 # --- TAB 2: NEW CLIENT ---
 with tab2:
-    st.subheader("Add New Client")
-    
-    # Remove form to allow specialized layout
-    c1, c2 = st.columns(2)
-    nm, ph = c1.text_input("Client Name"), c2.text_input("Phone", max_chars=15, help="Enter digits only")
-    ad = st.text_area("Address")
-    
-    # Buttons Layout
-    b1, b2 = st.columns([1, 1])
-    
-    with b1:
-        submitted = st.button("Create Client", type="primary", use_container_width=True)
-    
-    # Logic for Go to Add Project visibility
-    show_goto = 'last_created_client' in st.session_state
-    
-    with b2:
-        if show_goto:
-            if st.button(f"Add Project for {st.session_state['last_created_client']}", use_container_width=True):
-                # JS Injection to switch tabs (Index 1 is New Project)
-                js_code = """
-                <script>
-                    var tabContainer = window.parent.document.querySelector('[data-testid="stTabs"]');
-                    if (tabContainer) {
-                        var buttons = tabContainer.querySelectorAll('button');
-                        if (buttons.length > 1) {
-                            buttons[1].click();
-                        }
-                    }
-                </script>
-                """
-                components.html(js_code, height=0)
-    
-    if submitted:
-        if not nm or not ph or not ad:
-            st.error("Client Name, Phone, and Address are required fields.")
-        elif ph and not ph.replace("+", "").replace("-", "").replace(" ", "").isdigit():
-            st.error("Phone number must contain only digits, spaces, +, or -.")
+    st.subheader("👥 Clients Directory")
+
+    # 2. Client List
+    try:
+        current_clients_res = get_clients()
+        # Fetch all projects for history
+        all_projects_res = get_projects()
+        all_projects = all_projects_res.data if all_projects_res and all_projects_res.data else []
+
+        if current_clients_res and current_clients_res.data:
+            client_list = current_clients_res.data
+            
+            for client in client_list:
+                with st.expander(f"👤 {client['name']}  ({client.get('phone', 'N/A')})"):
+                    # Edit Form
+                    with st.form(f"edit_client_{client['id']}"):
+                        ec1, ec2, ec3 = st.columns([1.5, 1, 1]) # Adjusted columns
+                        enm = ec1.text_input("Name", value=client['name'])
+                        eph = ec2.text_input("Phone", value=client.get('phone', ''))
+                        ead = st.text_area("Address", value=client.get('address', ''))
+                        
+                        if st.form_submit_button("Update Details"):
+                            try:
+                                supabase.table("clients").update({
+                                    "name": enm, "phone": eph, "address": ead
+                                }).eq("id", client['id']).execute()
+                                st.success("Client Updated!")
+                                time.sleep(0.5)
+                                get_clients.clear()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+
+                    # Project History
+                    st.markdown("#### 📂 Project History")
+                    # Filter projects for this client
+                    c_projs = [p for p in all_projects if p.get('client_id') == client['id']]
+                    
+                    if c_projs:
+                        c_df = pd.DataFrame(c_projs)
+                        # Ensure basic columns exist
+                        cols_to_show = ['project_name', 'status', 'created_at']
+                        if 'est_val' not in c_df.columns and 'internal_estimate' in c_df.columns:
+                             # Quick calc for display if needed, or just show basic info
+                             pass
+                        
+                        st.dataframe(
+                            c_df[cols_to_show], 
+                            column_config={
+                                "project_name": "Project",
+                                "status": "Status",
+                                "created_at": st.column_config.DateColumn("Created")
+                            },
+                            use_container_width=True, 
+                            hide_index=True
+                        )
+                    else:
+                        st.info("No projects found for this client.")
         else:
-            # Check if client name already exists
-            existing_client = supabase.table("clients").select("name").eq("name", nm).execute()
-            if existing_client.data:
-                st.error(f"Error: Client with the name {nm} already exists.")
-            else:
-                try:
-                    # In a real app with storage, we would upload fit_imgs to Supabase Storage here and get URLs
-                    
-                    data = {
-                        "name": nm, 
-                        "phone": ph, 
-                        "address": ad, 
-                        "measurements": measurements,
-                        "status": "New Lead", 
-                        "created_at": datetime.now().isoformat()
-                    }
-                    
-                    res = supabase.table("clients").insert(data).execute()
-                    if res and res.data: 
-                        st.session_state['last_created_client'] = nm
-                        st.success(f"Client {nm} Added!")
-                        get_clients.clear()
-                        # Force a rerun to show the "Go to Estimator" button immediately
-                        st.rerun()
-                    else: st.error("Save Failed.")
-                except Exception as e:
-                    st.error(f"Database Error: {e}")
+            st.info("No clients found.")
+    except Exception as e:
+        st.error(f"Error loading clients: {e}")
 
 
 # --- TAB 3: ESTIMATOR ---
