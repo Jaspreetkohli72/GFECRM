@@ -594,7 +594,11 @@ with tab2:
             client_list = current_clients_res.data
             
             for client in client_list:
-                with st.expander(f"👤 {client['name']}  ({client.get('phone', 'N/A')})"):
+                # Calculate project count for label
+                c_projs = [p for p in all_projects if p.get('client_id') == client['id']]
+                proj_count = len(c_projs)
+                
+                with st.expander(f"👤 {client['name']}  ({proj_count} Projects)"):
                     # Edit Form
                     with st.form(f"edit_client_{client['id']}"):
                         ec1, ec2, ec3 = st.columns([1.5, 1, 1])
@@ -616,8 +620,7 @@ with tab2:
 
                     # Project History
                     st.markdown("#### 📂 Project History")
-                    # Filter projects for this client
-                    c_projs = [p for p in all_projects if p.get('client_id') == client['id']]
+                    # c_projs is already calculated top of loop
                     
                     if c_projs:
                         # Enrich with Project Name from Type ID

@@ -106,7 +106,7 @@ The core tool for generating quotes.
 | **Manage Estimate** | **Data Editor** | Table | Dynamic Rows | Edit `Qty` (Step 0.1) and `Base Rate`. `Item` name is editable. |
 
 ### Tab 2: Clients
-*   **Clients Directory**: View a list of all clients in expandable cards, showing their name and phone number.
+*   **Clients Directory**: View a list of all clients in expandable cards, showing their name and **total project count**.
 *   **Edit Details**: Expand any client card to edit their Name, Phone, or Address inline.
 *   **Project History**: Displays a table of all projects associated with the client.
 *   **Validation**: Phone numbers are strictly validated (digits, spaces, +, - only).
