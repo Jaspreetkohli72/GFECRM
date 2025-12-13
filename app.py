@@ -654,6 +654,11 @@ with tab2:
                             p['project_name'] = pt_map.get(pid, "Unknown Project")
 
                         c_df = pd.DataFrame(c_projs)
+                        
+                        # Formatting: Clean up status for display (e.g. "Estimate Created on..." -> "Estimate Given")
+                        if 'status' in c_df.columns:
+                            c_df['status'] = c_df['status'].apply(lambda x: "Estimate Given" if str(x).startswith("Estimate Created on") else x)
+
                         # Ensure basic columns exist
                         cols_to_show = ['project_name', 'status', 'created_at']
                         
