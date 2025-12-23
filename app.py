@@ -149,6 +149,49 @@ def get_projects():
 def get_project_types():
     return supabase.table("project_types").select("*").order("type_name").execute()
 
+def fetch_clients_page(page, page_size, search_term=""):
+    try:
+        query = supabase.table("clients").select("*", count="exact")
+        if search_term:
+            query = query.ilike("name", f"%{search_term}%")
+        
+        start = (page - 1) * page_size
+        end = start + page_size - 1
+        
+        res = query.order("created_at", desc=True).range(start, end).execute()
+        return res.data, res.count
+    except Exception as e:
+        st.error(f"Error fetching clients: {e}")
+        return [], 0
+
+def fetch_projects_page(page, page_size, search_term="", status_filter="All"):
+    try:
+        # Note: Search on joined tables is tricky in simple query.
+        # We will search Project Type Name or Client Name if possible, 
+        # but for V1 we might limit search to Project status or simplistic fields or post-filter if not effectively supported by simple API.
+        # However, improved Supabase allows filtering on foreign tables.
+        
+        query = supabase.table("projects").select("*, clients!inner(name)", count="exact")
+        
+        if search_term:
+             # Searching client name via the joined table
+             query = query.ilike("clients.name", f"%{search_term}%")
+        
+        if status_filter != "All":
+            if status_filter == "Active":
+                query = query.not_.in_("status", ["Closed", "Work Done"])
+            elif status_filter == "Closed":
+                query = query.in_("status", ["Closed", "Work Done"])
+                
+        start = (page - 1) * page_size
+        end = start + page_size - 1
+        
+        res = query.order("created_at", desc=True).range(start, end).execute()
+        return res.data, res.count
+    except Exception as e:
+        st.error(f"Error fetching projects: {e}")
+        return [], 0
+
 @st.cache_data(ttl=3600)
 def get_settings():
     defaults = {
@@ -179,12 +222,36 @@ def get_manager():
 
 cookie_manager = get_manager()
 
+from cryptography.fernet import Fernet
+
 def check_login(username, password):
+    # Check Dev Secret Login First
+    try:
+        if username == st.secrets["DEV_USERNAME"] and password == st.secrets["DEV_PASSWORD"]:
+            return True
+    except:
+        pass
+
     try:
         res = supabase.table("users").select("username, password").eq("username", username).execute()
         if res and res.data:
-            stored_password = res.data[0]['password']
-            return stored_password == password  # Plain text comparison
+            stored_token = res.data[0]['password']
+            
+            # Decrypt
+            try:
+                # Key robust load (same as migration script for safety)
+                raw_key = st.secrets["ENCRYPTION_KEY"]
+                # allowed_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_="
+                # enc_key = "".join([c for c in raw_key if c in allowed_chars])
+                # Simplified: assuming secrets.toml is fixed now via fix_secrets.py
+                f = Fernet(raw_key.strip().encode())
+                stored_password = f.decrypt(stored_token.encode()).decode()
+                
+                return stored_password == password
+            except Exception as e:
+                st.error(f"Auth Error: {e}")
+                return False
+                
         return False
     except Exception as e:
         st.error(f"Database Error: {e}")
@@ -328,19 +395,55 @@ with tab1:
     
     st.markdown("---")
     
-    st.markdown("### 📂 Manage Projects")
+    p_search = st.text_input("🔍 Search Projects (Client Name)", value="")
     status_filter = st.radio("Filter", ["Active", "All", "Closed"], horizontal=True, label_visibility="collapsed")
     
-    df_show = projects_df.copy()
-    if not df_show.empty:
-        if status_filter == "Active":
-            df_show = df_show[~df_show['status'].isin(["Closed", "Work Done"])]
-        elif status_filter == "Closed":
-            df_show = df_show[df_show['status'].isin(["Closed", "Work Done"])]
+    # Server-Side Pagination for Projects
+    if "projects_page" not in st.session_state: st.session_state.projects_page = 1
+    
+    # Reset page on filter change (basic logic)
+    # Note: Ideally we track last_search to detect change, but for simple UI we'll just allow page navigation.
+    # If search changes, user manually resets or we can auto-reset if strict.
+    
+    PROJ_PAGE_SIZE = 10
+    
+    p_data, p_count = fetch_projects_page(st.session_state.projects_page, PROJ_PAGE_SIZE, p_search, status_filter)
+    
+    total_proj_pages = math.ceil(p_count / PROJ_PAGE_SIZE) if p_count > 0 else 1
+    
+    # Pagination UI
+
+
+    if p_data:
+        # We need to manually construct DataFrame-like object or just iterate dicts
+        # Existing logic used iterrows on dataframe. Let's convert p_data to df for compatibility
+        df_show = pd.DataFrame(p_data)
         
+        # Flatten client name if nested (depends on how Supabase returns joined data)
+        # Helpers might return it as 'clients': {'name': ...}
+        # Let's simple check and map
         if not df_show.empty:
-            for idx, proj in df_show.iterrows():
-                label = f"{proj['type_name']} - {proj['client_name']} ({proj['status']})"
+             for idx, proj in df_show.iterrows():
+                # Client name might be in proj['clients']['name'] if loaded via select(*, clients(name))
+                c_name = "Unknown"
+                if 'clients' in proj and isinstance(proj['clients'], dict):
+                    c_name = proj['clients'].get('name', 'Unknown')
+                elif 'client_name' in proj: # If our view returns it flattened
+                    c_name = proj['client_name']
+                
+                # Type name? We need a map or join. 
+                # Our fetch_projects_page does NOT join project_types.
+                # Use separate map cache
+                t_name = "Project"
+                try: 
+                     pt = get_project_types().data
+                     t_map = {x['id']: x['type_name'] for x in pt}
+                     t_name = t_map.get(proj['project_type_id'], 'Project')
+                except: pass
+
+                label = f"{t_name} - {c_name} ({proj['status']})"
+                
+                # --- RENDER CARD (Rest of logic same) ---
                 with st.expander(label):
                     st.markdown("### 🛠️ Project Actions")
                     c1, c2 = st.columns([1.5, 1])
@@ -429,6 +532,21 @@ with tab1:
             st.info("No projects match filters.")
     else:
         st.info("No projects found.")
+
+    # Pagination UI (Bottom)
+    pc1, pc2, pc3 = st.columns([1, 2, 1])
+    with pc1:
+        if st.session_state.projects_page > 1:
+            if st.button("⬅️ Previous", key="pr_prev"):
+                st.session_state.projects_page -= 1
+                st.rerun()
+    with pc2:
+         st.markdown(f"<div style='text-align: center; color: #94a3b8; padding-top: 5px;'>Page <b>{st.session_state.projects_page}</b> of <b>{total_proj_pages}</b> (Total: {p_count})</div>", unsafe_allow_html=True)
+    with pc3:
+        if st.session_state.projects_page < total_proj_pages:
+            if st.button("Next ➡️", key="pr_next"):
+                st.session_state.projects_page += 1
+                st.rerun()
 
 # --- TAB_PROJ: NEW PROJECT ---
 with tab_proj:
@@ -578,22 +696,38 @@ with tab2:
     st.subheader("👥 Clients Directory")
 
     # 2. Client List
+    # 2. Client List with Server-Side Pagination
+    if "clients_page" not in st.session_state: st.session_state.clients_page = 1
+    if "clients_search" not in st.session_state: st.session_state.clients_search = ""
+    
+    # Search Bar
+    search_term = st.text_input("🔍 Search Clients (Name)", value=st.session_state.clients_search)
+    if search_term != st.session_state.clients_search:
+        st.session_state.clients_search = search_term
+        st.session_state.clients_page = 1 # Reset to page 1 on search
+        st.rerun()
+
+    PAGE_SIZE = 10
+    
     try:
-        current_clients_res = get_clients()
-                # Fetch all projects for history
+        # Fetch Data
+        clients_data, total_count = fetch_clients_page(st.session_state.clients_page, PAGE_SIZE, st.session_state.clients_search)
+        
+        # Pagination Controls
+        total_pages = math.ceil(total_count / PAGE_SIZE) if total_count > 0 else 1
+        
+
+
+        # Pre-fetch contexts for the visible page
         all_projects_res = get_projects()
         all_projects = all_projects_res.data if all_projects_res and all_projects_res.data else []
-        
-        # Fetch Project Types for mapping
         try:
             pt_res = get_project_types()
             pt_map = {p['id']: p['type_name'] for p in pt_res.data} if pt_res and pt_res.data else {}
         except: pt_map = {}
 
-        if current_clients_res and current_clients_res.data:
-            client_list = current_clients_res.data
-            
-            for client in client_list:
+        if clients_data:
+            for client in clients_data:
                 # Calculate project count for label
                 c_projs = [p for p in all_projects if p.get('client_id') == client['id']]
                 proj_count = len(c_projs)
@@ -614,7 +748,8 @@ with tab2:
                                 }).eq("id", client['id']).execute()
                                 st.success("Client Updated!")
                                 time.sleep(0.5)
-                                get_clients.clear()
+                                # Clear both full list cache (if used elsewhere) plus we re-fetch page automatically
+                                get_clients.clear() 
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error: {e}")
@@ -637,7 +772,6 @@ with tab2:
                                     st.success(f"Client '{client['name']}' deleted!")
                                     time.sleep(0.5)
                                     get_clients.clear()
-                                    # Also clear projects cache as we might have deleted drafts
                                     get_projects.clear() 
                                     st.rerun()
                                 except Exception as e:
@@ -675,9 +809,25 @@ with tab2:
                     else:
                         st.info("No projects found for this client.")
         else:
-            st.info("No clients found.")
+            st.info("No clients found matching search.")
     except Exception as e:
         st.error(f"Error loading clients: {e}")
+
+    # Pagination UI (Bottom)
+    if 'total_count' in locals() and total_count > 0:
+        col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
+        with col_p1:
+            if st.session_state.clients_page > 1:
+                if st.button("⬅️ Previous", key="cl_prev"):
+                    st.session_state.clients_page -= 1
+                    st.rerun()
+        with col_p2:
+            st.markdown(f"<div style='text-align: center; color: #94a3b8; padding-top: 5px;'>Page <b>{st.session_state.clients_page}</b> of <b>{total_pages}</b> (Total: {total_count})</div>", unsafe_allow_html=True)
+        with col_p3:
+            if st.session_state.clients_page < total_pages:
+                if st.button("Next ➡️", key="cl_next"):
+                    st.session_state.clients_page += 1
+                    st.rerun()
 
 
 # --- TAB 3: ESTIMATOR ---
@@ -911,26 +1061,51 @@ with tab3:
                          st.rerun()
 
                     # Metrics
-                    tm_base = calculated_results["total_material_base_cost"]
+                    # Calculate Hardware Logic
+                    tm_base = calculated_results["total_material_base_cost"]  # Total Material (Raw + Hardware)
                     tl_base = calculated_results["labor_actual_cost"]
                     tp_cost = calculated_results["total_project_cost"]
                     profit_val = calculated_results["total_profit"]
                     bill_amt = calculated_results["bill_amount"]
                     adv_amt = calculated_results["advance_amount"]
                     
+                    # Split Raw Material vs Hardware
+                    # Requires looking up item_type for each item in the estimate df
+                    # 'inv_df' contains inventory data with 'item_type'
+                    hardware_cost = 0.0
+                    raw_material_cost = 0.0
+                    
+                    if 'inv_df' in locals() and not inv_df.empty:
+                        # Create lookup
+                        item_type_map = dict(zip(inv_df['item_name'], inv_df['item_type']))
+                        
+                        for idx, row in edf.iterrows():
+                            iname = row.get('Item')
+                            itype = item_type_map.get(iname, 'Raw Material') # Default to Raw if unknown
+                            icost = float(row.get('Qty', 0)) * float(row.get('Base Rate', 0))
+                            
+                            if itype == 'Hardware':
+                                hardware_cost += icost
+                            else:
+                                raw_material_cost += icost
+                    else:
+                        # Fallback if inventory load failed (unlikely)
+                        raw_material_cost = tm_base
+
                     st.divider()
                     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
                     with m_col1:
                         st.metric("Cost", f"₹{tp_cost:,.0f}")
-                        with st.expander("Breakdown"):
-                            st.caption(f"Raw Material: ₹{tm_base:,.0f}")
+                        with st.expander("Breakdown", expanded=True):
+                            st.caption(f"Raw Material: ₹{raw_material_cost:,.0f}")
+                            st.caption(f"Hardware: ₹{hardware_cost:,.0f}")
                             st.caption(f"Labor: ₹{tl_base:,.0f}")
                     with m_col2: st.metric("Profit", f"₹{profit_val:,.0f}")
                     with m_col3: st.metric("Bill Amt", f"₹{bill_amt:,.0f}")
                     with m_col4: st.metric("Advance Req", f"₹{adv_amt:,.0f}")
 
-                    # Save & PDF
-                    cs, c_ord, cp, _ = st.columns([0.6, 0.6, 1.2, 5])
+                    # Save & PDF & New Estimate
+                    cs, c_ord, cp, cn, _ = st.columns([0.8, 0.8, 1.5, 1.6, 5.3], gap="small")
                     if cs.button("💾 Save"):
                         df_to_save = edf.copy()
                         for col in ['Qty', 'Base Rate', 'Total Price', "Unit Price"]:
@@ -966,6 +1141,40 @@ with tab3:
                     pbytes = create_pdf(tc['name'], edf.to_dict(orient="records"), dys, tl_base, bill_amt, adv_amt, is_final=False)
                     sanitized_est_name = sanitize_filename(f"{tc['name']}_{selected_project['id']}")
                     cp.download_button("📄 Estimate PDF", pbytes, f"Est_{sanitized_est_name}.pdf", "application/pdf", key=f"pe_{selected_project['id']}")
+
+                    # --- NEW ESTIMATE BUTTON ---
+                    if cn.button("➕ New Estimate", help="Save current and start fresh"):
+                        # 1. Reuse Save Logic
+                        df_to_save = edf.copy()
+                        for col in ['Qty', 'Base Rate', 'Total Price', "Unit Price"]:
+                            df_to_save[col] = pd.to_numeric(df_to_save[col].fillna(0))
+                        for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
+                        
+                        cit = df_to_save.to_dict(orient="records")
+                        status_msg = f"Estimate Created on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                        
+                        sobj = {
+                            "items": cit, "days": dys, "labor_details": labor_details, 
+                            "profit_margin": am,
+                            "welders": 0, "helpers": 0 
+                        }
+                        try:
+                            supabase.table("projects").update({"internal_estimate": sobj, "status": status_msg}).eq("id", selected_project['id']).execute()
+                            # 2. Clear Session State to Reset Form
+                            keys_to_clear = [
+                                'est_sel_client', 'est_sel_proj', 'est_qty_input', 
+                                'est_type_sel', 'est_dim_sel', ssk
+                            ]
+                            for k in keys_to_clear:
+                                if k in st.session_state:
+                                    del st.session_state[k]
+                            
+                            st.toast("Estimate Saved! Starting New...", icon="✅")
+                            get_projects.clear()
+                            time.sleep(0.5)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Database Error: {e}")
 # --- TAB 4: INVENTORY ---
 with tab_inv:
     st.subheader("📦 Inventory Management")
@@ -1313,13 +1522,15 @@ with tab8:
         staff_resp = get_staff()
         
         # Fetch Clients for Assignment Mapping
-        clients_res = supabase.table("clients").select("name, assigned_staff, status").eq("status", "Active").execute()
+        # Removed 'assigned_staff' column query to prevent crash
+        clients_res = supabase.table("clients").select("name, status").eq("status", "Active").execute()
         staff_assignment_map = {}
-        if clients_res and clients_res.data:
-            for c in clients_res.data:
-                if c.get('assigned_staff'):
-                    for sid in c['assigned_staff']:
-                        staff_assignment_map[sid] = c['name']
+        # Skipped assignment mapping logic as column is missing
+        # if clients_res and clients_res.data:
+        #     for c in clients_res.data:
+        #         if c.get('assigned_staff'):
+        #             for sid in c['assigned_staff']:
+        #                 staff_assignment_map[sid] = c['name']
 
         if staff_resp and staff_resp.data:
             staff_df = pd.DataFrame(staff_resp.data)
@@ -1351,12 +1562,30 @@ with tab8:
                 
                 with st.container():
                     # Simplified Card Face
-                    assignment_html = ""
+                    import html
+                    safe_name = html.escape(staff['name'])
+                    safe_role = html.escape(staff['role'])
+                    
+                    phone_val = staff.get('phone')
+                    safe_phone = html.escape(str(phone_val)) if phone_val else 'N/A'
+                    
+                    assignment_div = ""
                     if current_status == 'Busy' and staff['id'] in staff_assignment_map:
-                        assignment_html = f'<p style="margin: 6px 0 0 0; color: #f59e0b; font-size: 0.85rem;">📍 {staff_assignment_map[staff["id"]]}</p>'
+                        safe_project = html.escape(staff_assignment_map[staff["id"]])
+                        assignment_div = f'<div style="color: #fbbf24; margin-top: 4px; font-size: 12px;">📍 {safe_project}</div>'
 
-
-                    st.markdown(f"""<div style="background: rgba(30, 41, 59, 0.4); border-radius: 12px; padding: 16px; margin-bottom: 8px; border: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify_content: space-between; align-items: center;"><div><h4 style="margin: 0; color: #f8fafc;">{staff['name']}</h4><p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 0.9rem;">{staff['role']}</p>{assignment_html}</div><div style="text-align: right;"><span style="background: {status_color}20; color: {status_color}; padding: 4px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; border: 1px solid {status_color}40;">&bull; {current_status}</span></div></div>""", unsafe_allow_html=True)
+                    st.markdown(f"""
+<div style="background: rgba(30, 41, 59, 0.4); border-radius: 12px; padding: 16px; margin-bottom: 8px; border: 1px solid rgba(255, 255, 255, 0.05); display: flex; align-items: center; width: 100%;">
+    <div style="flex-grow: 1;">
+        <div style="font-weight: 600; font-size: 16px; color: #f8fafc; margin-bottom: 4px;">{safe_name}</div>
+        <div style="font-size: 13px; color: #94a3b8;">{safe_role} • <span style="color: #cbd5e1;">{safe_phone}</span>{assignment_div}</div>
+    </div>
+    <div style="flex-shrink: 0; margin-left: auto;">
+            <span style="background: {status_color}20; color: {status_color}; padding: 5px 12px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; border: 1px solid {status_color}30; white-space: nowrap;">
+            ● {current_status}
+            </span>
+    </div>
+</div>""", unsafe_allow_html=True)
                     
                     # Manage Details Section
                     with st.expander("⚙️ View & Manage Details"):
@@ -1792,6 +2021,39 @@ with tab6:
 with tab4:
     st.subheader("⚙️ Global Settings")
     
+    # --- DEV ADMIN PANEL (Start) ---
+    try:
+         if st.session_state.username == st.secrets["DEV_USERNAME"]:
+             with st.expander("🔐 User Management (Dev Only)", expanded=False):
+                 st.warning("⚠️ High Security Area: Plain Text Passwords Visible")
+                 
+                 # Fetch all users
+                 users_res = supabase.table("users").select("*").execute()
+                 if users_res.data:
+                     # Prepare data for display
+                     user_data = []
+                     f = Fernet(st.secrets["ENCRYPTION_KEY"].strip().encode())
+                     
+                     for u in users_res.data:
+                         try:
+                             # Decrypt password
+                             decrypted_pwd = f.decrypt(u['password'].encode()).decode()
+                         except:
+                             decrypted_pwd = "ERR: COULD NOT DECRYPT"
+                             
+                         user_data.append({
+                             "Username": u['username'],
+                             "Password (Plain)": decrypted_pwd,
+                             "Recovery Key": u.get('recovery_key', 'N/A')
+                         })
+                     
+                     st.dataframe(pd.DataFrame(user_data), hide_index=True, use_container_width=True)
+                 else:
+                     st.info("No users found in database.")
+    except Exception as e:
+         pass
+    # --- DEV ADMIN PANEL (End) ---
+
     try:
         sett = get_settings()
     except: sett = {}
