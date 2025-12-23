@@ -189,30 +189,15 @@ To prevent "magic numbers" and ensure consistency, the following constants are d
 *   `ACTIVE_STATUSES`: `["Estimate Given", "Order Received", "Work In Progress"]` - Defines which clients appear in the "Active" filter.
 *   `P_L_STATUS`: `["Work Done", "Closed"]` - Defines which projects contribute to the Profit & Loss statement.
 
-### 4.2 Authentication Flow Control (Critique & Mapping)
+### 4.2 Authentication Flow Control
 
-> [!CAUTION]
-> **Security Critical Review**: The current authentication implementation contains a severe vulnerability.
+> [!NOTE]
+> **Security Update**: The system now uses Fernet encryption for password verification.
 
-**Vulnerability Analysis**:
-The function `check_login` in `app.py` (Line 42) performs a **Plain Text Password Comparison**.
-*   **Risk**: If the database is compromised, all user passwords are exposed.
-*   **Offending Line**: `return res.data[0]['password'] == password`
-*   **Remediation**: Must implement hashing (e.g., `bcrypt` or `Argon2`) immediately.
-
-**Pseudocode Flowchart: `check_login(username, password)`**
-
-```mermaid
-graph TD
-    A[Start: check_login] --> B{Query 'users' table}
-    B -- Query: SELECT password WHERE username = input_user --> C[Execute Supabase Query]
-    C --> D{Result Found?}
-    D -- No --> E[Return False]
-    D -- Yes --> F[Extract stored_password]
-    F --> G{Plain Text Compare: stored == input?}
-    G -- Yes --> H[Return True]
-    G -- No --> I[Return False]
-```
+**Mechanism**:
+The function `check_login` in `app.py` performs an **Encrypted Comparison**.
+*   **Process**: It encrypts the user entry using the secret `ENCRYPTION_KEY` and compares it to the stored encrypted string.
+*   **Cookie Security**: The "Remember Me" function now uses an **HMAC Signature** (`galaxy_token`) to prevent cookie forgery.
 
 **Connection Cache Mechanism**
 Streamlit's execution model reloads the script on every interaction. To prevent re-establishing the database connection (which is slow and resource-intensive) on every rerun:

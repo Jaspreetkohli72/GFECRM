@@ -1,6 +1,6 @@
 import streamlit as st
 from supabase import create_client
-from utils import helpers, auth
+from utils import helpers
 from utils.helpers import create_pdf
 
 from datetime import datetime, timedelta
@@ -14,6 +14,10 @@ import altair as alt
 import plotly.graph_objects as go
 import extra_streamlit_components as stx
 import streamlit.components.v1 as components
+import html
+import hmac
+import hashlib
+
 
 # ---------------------------
 # 1. SETUP & CONNECTION
@@ -262,11 +266,17 @@ def login_section():
     with st.spinner("Checking session..."):
         time.sleep(0.3) # Allow cookie manager to sync
         cookie_user = cookie_manager.get(cookie="galaxy_user")
+        cookie_sig = cookie_manager.get(cookie="galaxy_token")
     
-    if cookie_user:
-        st.session_state.logged_in = True
-        st.session_state.username = cookie_user
-        return  # Exit here, don't show login UI
+    if cookie_user and cookie_sig:
+        # Validate Signature
+        secret = st.secrets["ENCRYPTION_KEY"].strip().encode()
+        expected_sig = hmac.new(secret, cookie_user.encode(), hashlib.sha256).hexdigest()
+        
+        if hmac.compare_digest(expected_sig, cookie_sig):
+             st.session_state.logged_in = True
+             st.session_state.username = cookie_user
+             return  # Exit here, don't show login UI
     
     # If already logged in (from this session), don't show form
     if st.session_state.get('logged_in'):
@@ -285,7 +295,13 @@ def login_section():
                     st.session_state.logged_in = True
                     st.session_state.username = user
                     expires = datetime.now() + timedelta(days=3650)
+                    
+                    # Create Signed Cookie
+                    secret = st.secrets["ENCRYPTION_KEY"].strip().encode()
+                    sig = hmac.new(secret, user.encode(), hashlib.sha256).hexdigest()
+                    
                     cookie_manager.set("galaxy_user", user, expires_at=expires)
+                    cookie_manager.set("galaxy_token", sig, expires_at=expires) # Hashed Token
                     time.sleep(0.5)
                     st.rerun()
                 else:
@@ -304,7 +320,7 @@ st.title("🚀 Galaxy CRM")
 st.markdown(f"""
 <div style="display: flex; align-items: center; margin-bottom: 0px;">
     <span style="font-size: 1.75rem; margin-right: 10px;">👋</span>
-    <span style="font-size: 1.75rem; font-weight: 700; background: linear-gradient(to right, #f8fafc, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Welcome back, {st.session_state.username}</span>
+    <span style="font-size: 1.75rem; font-weight: 700; background: linear-gradient(to right, #f8fafc, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Welcome back, {html.escape(st.session_state.username)}</span>
 </div>
 """, unsafe_allow_html=True)
 
@@ -726,6 +742,8 @@ with tab2:
             pt_map = {p['id']: p['type_name'] for p in pt_res.data} if pt_res and pt_res.data else {}
         except: pt_map = {}
 
+
+
         if clients_data:
             for client in clients_data:
                 # Calculate project count for label
@@ -733,6 +751,7 @@ with tab2:
                 proj_count = len(c_projs)
                 
                 with st.expander(f"👤 {client['name']}  ({proj_count} Projects)"):
+
                     # Edit Form
                     with st.form(f"edit_client_{client['id']}"):
                         ec1, ec2, ec3 = st.columns([1.5, 1, 1])
@@ -2195,7 +2214,12 @@ with tab4:
                 st.error("Incorrect current password.")
             else:
                 try:
-                    supabase.table("users").update({"password": new_pass}).eq("username", st.session_state.username).execute()
+                    # Encrypt before saving
+                    key = st.secrets["ENCRYPTION_KEY"].strip().encode()
+                    f = Fernet(key)
+                    encrypted_pass = f.encrypt(new_pass.encode()).decode()
+                    
+                    supabase.table("users").update({"password": encrypted_pass}).eq("username", st.session_state.username).execute()
                     st.success("Password Updated! Please re-login.")
                     time.sleep(1)
                     st.session_state.logged_in = False
@@ -2208,4 +2232,5 @@ with tab4:
     if st.button("🚪 Log Out", type="primary", use_container_width=True):
         st.session_state.logged_in = False
         cookie_manager.delete("galaxy_user")
+        cookie_manager.delete("galaxy_token")
         st.rerun()
