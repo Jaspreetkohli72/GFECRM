@@ -1,0 +1,70 @@
+Implementation Plan - Supabase Auth Refactor
+The goal is to integrate the user-provided "Best Practice" code for robust, fast authentication, while maintaining the specific "Reset Password" fixes we just implemented.
+
+User Review Required
+IMPORTANT
+
+I am replacing the entire 
+check_login
+ and 
+login_section
+ logic with the provided standard 
+sign_in_email
+, refresh_session_blocking, and refresh_session_background functions. I will adapt load_tokens_from_storage to use the existing extra_streamlit_components CookieManager since it is already installed and working, rather than switching to streamlit_cookies_manager.
+
+Proposed Changes
+app.py
+ Refactor
+1. Imports & Constants
+Add threading, json.
+Define constants AUTH_TOKEN_EXPIRE_MARGIN, REFRESH_TIMEOUT.
+2. Auth Helper Functions (New)
+supabase_with_token(token): Creates a client with the specific token (server-side). CRITICAL for RLS.
+sign_in_email(email, pw)
+: REST-based login with timeout (3s).
+refresh_session_blocking(token): Synchronous refresh for startup. Rotates Refresh Token.
+refresh_session_background(): Threaded refresh. Uses st.session_state['refresh_in_progress'] lock.
+save_tokens_to_storage: Atomic write of access_token (memory) and refresh_token (cookie).
+load_tokens_from_storage: Reads refresh_token from cookie.
+3. RLS Compatibility (Database Refactor)
+Authenticated Client: All database operations (
+fetch_projects
+, 
+save_project
+, etc.) will use supabase_with_token(st.session_state.access_token).
+Single Source of Truth: All DB calls read from st.session_state['access_token'].
+Authorization Header: Ensures auth.uid() works in RLS policies.
+4. Startup & Session Logic
+Cookie Policy: Persist only refresh_token. access_token is memory-only.
+Rotation: On every refresh, write the NEW refresh_token to the cookie.
+Verification: Call auth.get_user once after refresh to verify.
+Timeout: Set REFRESH_TIMEOUT to 3s.
+Retry: On network error, retry once. On 401, clear cookies & logout.
+5. Reset Password Flow
+Hash Handler: Use existing JS injection (same-origin callback equivalent).
+Flow: Extract tokens -> Post to app -> save_tokens_to_storage -> refresh_session_blocking verification.
+6. Edge Cases
+Logout: Clear st.session_state and delete cookie.
+Offline: Show "Restoring..." spinner with manual retry if refresh times out.
+Hash Handler: Keep the JS injection (Step 306) to convert #access_token to ?sb_access_token.
+Token Recovery:
+If sb_access_token in query params -> Validate & Store -> Redirect.
+Else -> load_tokens_from_storage() -> If refresh_token exists -> refresh_session_blocking -> Init Session.
+Background Refresh: Check should_refresh() -> Trigger thread.
+4. UI Updates
+Replace 
+login_section
+ with the logic inside the user's validation block.
+If access_token present: Show App.
+Else: Show Login Sidebar/Form.
+Verification Plan
+Automated Tests
+None (Streamlit UI flow).
+Manual Verification
+Fresh Login: Sign in -> Cookie set (refresh only) -> App shows immediately.
+Cold Start: Clear cookies -> Refresh -> Login required.
+App Restart: Refresh page -> refresh_session_blocking works -> App restores instantly.
+Reset Password: Click email link -> Auto-recover -> Log in.
+Token Rotation: Verify cookie changes after background refresh (approx 50m, or force trigger).
+Invalid Token: Manually corrupt cookie -> Refresh -> Should log out.
+RLS Check: Verify data loads only for logged-in user.

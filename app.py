@@ -2,6 +2,9 @@ import streamlit as st
 from supabase import create_client
 from utils import helpers
 from utils.helpers import create_pdf
+from streamlit_autorefresh import st_autorefresh
+import streamlit.components.v1 as components
+import requests
 
 from datetime import datetime, timedelta
 import time
@@ -23,6 +26,9 @@ import hashlib
 # 1. SETUP & CONNECTION
 # ---------------------------
 st.set_page_config(page_title="Galaxy CRM", page_icon="🏗️", layout="wide")
+
+# Realtime Data Refresh (Polling every 30s)
+st_autorefresh(interval=30000, key="data_refresh")
 
 # === START OF CRITICAL CACHE FIX ===
 if st.session_state.get('cache_fix_needed', True):
@@ -219,67 +225,232 @@ def sanitize_filename(name):
     return re.sub(r'[^\w\s-]', '', name).strip().replace(' ', '_')
 
 # ---------------------------
-# 3. AUTHENTICATION
+# 3. AUTHENTICATION (REST + COOKIES)
 # ---------------------------
+# Helper: Cookie Manager
 def get_manager():
-    return stx.CookieManager(key="auth_cookie_manager")
+    return stx.CookieManager(key="auth_cookie_manager_v2")
 
 cookie_manager = get_manager()
 
-from cryptography.fernet import Fernet
+# Helper: Sign in with Email/Password via REST
+def sign_in_email(email: str, password: str):
+    # API Key
+    apikey = st.secrets["SUPABASE_KEY"]
+    url = f"{st.secrets['SUPABASE_URL']}/auth/v1/token?grant_type=password"
+    headers = {
+        "apikey": apikey, 
+        "Content-Type": "application/json"
+    }
+    # Supabase expects 'email', 'password'
+    resp = requests.post(url, headers=headers, json={"email": email, "password": password})
+    if resp.status_code != 200:
+        return None, resp.json().get("error_description", "Login failed")
+    
+    return resp.json(), None
+
+# Helper: Refresh Session via REST
+def refresh_session(refresh_token: str):
+    apikey = st.secrets["SUPABASE_KEY"]
+    url = f"{st.secrets['SUPABASE_URL']}/auth/v1/token?grant_type=refresh_token"
+    headers = {
+        "apikey": apikey, 
+        "Content-Type": "application/json"
+    }
+    resp = requests.post(url, headers=headers, json={"refresh_token": refresh_token})
+    if resp.status_code != 200:
+        return None
+    return resp.json()
 
 def check_login(username, password):
-    # Check Dev Secret Login First
+    # 1. Dev Secret Backdoor
     try:
-        if username == st.secrets["DEV_USERNAME"] and password == st.secrets["DEV_PASSWORD"]:
-            return True
-    except:
-        pass
+        if username.lower() == st.secrets["DEV_USERNAME"].lower() and password == st.secrets["DEV_PASSWORD"]:
+            return True, "Dev Admin", None # No token data
+    except: pass
 
-    try:
-        res = supabase.table("users").select("username, password").eq("username", username).execute()
-        if res and res.data:
-            stored_token = res.data[0]['password']
-            
-            # Decrypt
-            try:
-                # Key robust load (same as migration script for safety)
-                raw_key = st.secrets["ENCRYPTION_KEY"]
-                # allowed_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_="
-                # enc_key = "".join([c for c in raw_key if c in allowed_chars])
-                # Simplified: assuming secrets.toml is fixed now via fix_secrets.py
-                f = Fernet(raw_key.strip().encode())
-                stored_password = f.decrypt(stored_token.encode()).decode()
-                
-                return stored_password == password
-            except Exception as e:
-                st.error(f"Auth Error: {e}")
-                return False
-                
-        return False
-    except Exception as e:
-        st.error(f"Database Error: {e}")
-        return False
+    # 2. Supabase Auth (REST)
+    if "@" in username and "." in username:
+        email_proxy = username
+    else:
+        email_proxy = f"{username}@crm.app"
+        
+    data, err = sign_in_email(email_proxy, password)
+    if data:
+        return True, data.get("user", {}).get("email"), data
+    
+    return False, None, None
 
 def login_section():
-    # Check if user already logged in via cookie
-    with st.spinner("Checking session..."):
-        time.sleep(0.3) # Allow cookie manager to sync
-        cookie_user = cookie_manager.get(cookie="galaxy_user")
-        cookie_sig = cookie_manager.get(cookie="galaxy_token")
+    # Helper: Auth Retry Counter to avoid Login Form Flicker
+    if 'auth_check_count' not in st.session_state:
+        st.session_state['auth_check_count'] = 0
+
+    # ---------------------------
+    # 0. Handle Magic Link / Invite Redirect (Code OR Fragment)
+    # ---------------------------
     
-    if cookie_user and cookie_sig:
-        # Validate Signature
-        secret = st.secrets["ENCRYPTION_KEY"].strip().encode()
-        expected_sig = hmac.new(secret, cookie_user.encode(), hashlib.sha256).hexdigest()
+    # A. Client-Side JS: Convert Hash (#) to Query (?)
+    # Fix: Target window.parent because this runs in an iframe
+    handle_hash_js = """
+    <script>
+    try {
+        if (window.parent.location.hash) {
+            const params = new URLSearchParams(window.parent.location.hash.substring(1));
+            if (params.has('access_token')) {
+                const newUrl = new URL(window.parent.location.href);
+                newUrl.searchParams.set('sb_access_token', params.get('access_token'));
+                newUrl.searchParams.set('sb_refresh_token', params.get('refresh_token'));
+                newUrl.searchParams.set('type', params.get('type'));
+                newUrl.hash = '';
+                window.parent.location.href = newUrl.toString();
+            }
+        }
+    } catch (e) {
+        console.log("Security block on parent access");
+    }
+    </script>
+    """
+    components.html(handle_hash_js, height=0, width=0)
+
+    try:
+        # B. Server-Side: Check Query Params
+        query_params = st.query_params
         
-        if hmac.compare_digest(expected_sig, cookie_sig):
-             st.session_state.logged_in = True
-             st.session_state.username = cookie_user
-             return  # Exit here, don't show login UI
+        # Case 1: PKCE Code
+        auth_code = query_params.get("code")
+        
+        # Case 2: Implicit Fragment (Converted to Query by JS above)
+        q_access = query_params.get("sb_access_token")
+        q_refresh = query_params.get("sb_refresh_token")
+        q_type = query_params.get("type")
+
+        if auth_code:
+            st.toast("Verifying Link...", icon="🔄")
+            # ... (Existing PKCE logic) ...
+            try:
+                res = supabase.auth.exchange_code_for_session({"auth_code": auth_code})
+                if res.user:
+                    st.session_state.logged_in = True
+                    # Auto-set username
+                    meta = res.user.user_metadata
+                    if meta.get('username'):
+                        st.session_state.username = meta.get('username')
+                    else:
+                        st.session_state.username = res.user.email.split("@")[0]
+                    
+                    # Save Cookies
+                    expires = datetime.now() + timedelta(days=30)
+                    try:
+                        cookie_manager.set("sb_refresh_token", res.session.refresh_token, expires_at=expires)
+                        cookie_manager.set("sb_access_token", res.session.access_token, expires_at=expires)
+                    except: pass
+                    
+                    st.success("Verified! Logging you in...")
+                    st.query_params.clear()
+                    time.sleep(1)
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Link Verification Failed: {e}")
+                st.query_params.clear()
+
+        elif q_access and q_refresh:
+            st.toast("Restoring Session from Link...", icon="🔄")
+            try:
+                # Restore Session directly from tokens
+                res = supabase.auth.set_session(q_access, q_refresh)
+                if res.user:
+                    st.session_state.logged_in = True
+                    
+                    # Username logic
+                    meta = res.user.user_metadata
+                    if meta.get('username'):
+                        st.session_state.username = meta.get('username')
+                    else:
+                        st.session_state.username = res.user.email.split("@")[0]
+                        
+                    # Save Cookies
+                    expires = datetime.now() + timedelta(days=30)
+                    try:
+                        cookie_manager.set("sb_refresh_token", q_refresh, expires_at=expires)
+                        cookie_manager.set("sb_access_token", q_access, expires_at=expires)
+                    except: pass
+                    
+                    if q_type == "recovery":
+                        st.info("Please set your new password below.")
+                        # We are logged in now. The Settings > Change Password section will be available.
+                        # We could also redirect there or show a specific modal, but simply logging in 
+                        # allows them to access the app and change it.
+                    
+                    st.success("Logged in successfully!")
+                    st.query_params.clear()
+                    time.sleep(1)
+                    st.rerun()
+            except Exception as e:
+                 st.error(f"Recovery Failed: {e}")
+                 st.query_params.clear()
+                 
+    except Exception as e: pass
+
+
+
+    # 1. Try to Restore Session from Cookies (Persistence)
+    if not st.session_state.get('logged_in'):
+        with st.spinner("Restoring session..."):
+             # Single short wait to allow component bridge
+            time.sleep(0.15)
+            cookies = cookie_manager.get_all()
+            
+            # If cookies are empty, but this is the FIRST check:
+            # Maybe component hasn't bridged. Don't show login form yet.
+            if not cookies and st.session_state['auth_check_count'] < 5:
+                st.session_state['auth_check_count'] += 1
+                # Stop and let the component trigger the next run
+                st.stop()
+            
+            ref_token = cookies.get("sb_refresh_token")
+            
+            if ref_token:
+                # Try REST Refresh
+                new_tokens = refresh_session(ref_token)
+                if new_tokens:
+                    # Success!
+                    st.session_state.logged_in = True
+                    
+                    # Update Cookies logic
+                    acc_tok = new_tokens.get("access_token") 
+                    ref_tok = new_tokens.get("refresh_token")
+                    
+                    # Store User Info
+                    user_obj = new_tokens.get("user", {})
+                    email = user_obj.get("email", "")
+                    meta = user_obj.get("user_metadata", {})
+                    
+                    if meta.get('username'):
+                        st.session_state.username = meta.get('username')
+                    else:
+                        st.session_state.username = email.split("@")[0] if "@" in email else "User"
+                    
+                    # Sync Global Client
+                    try:
+                        supabase.auth.set_session(acc_tok, ref_tok)
+                    except: pass
+                    
+                    # Update Cookies (Rotation)
+                    try:
+                         expires = datetime.now() + timedelta(days=30)
+                         cookie_manager.set("sb_refresh_token", ref_tok, expires_at=expires)
+                         # We don't necessarily need access_token in cookie if we refresh every time, 
+                         # but keeping it doesn't hurt. Refresh is key.
+                    except: pass
+                    
+                    st.rerun()
+
+    # Reset retry counter if we reach here (means no cookies or login failed)
+    # Actually if logged_in is true, we return early. If we are here, we are NOT logged in.
     
-    # If already logged in (from this session), don't show form
     if st.session_state.get('logged_in'):
+        st.session_state['auth_check_count'] = 0 # Reset for next logout
         return
 
     st.title("🔐 Galaxy CRM")
@@ -288,24 +459,106 @@ def login_section():
     with c2:
         with st.form("login"):
             st.subheader("Sign In")
-            user = st.text_input("Username")
+            user = st.text_input("Username (or Email)", placeholder="e.g. sandeep")
             pwd = st.text_input("Password", type="password")
-            if st.form_submit_button("Login", type="primary"):
-                if check_login(user, pwd):
+            
+            b_col1, b_col2 = st.columns([1,1])
+            submitted = b_col1.form_submit_button("Login", type="primary")
+            
+            if submitted:
+                is_valid, user_email, token_data = check_login(user, pwd)
+                
+                if is_valid:
                     st.session_state.logged_in = True
-                    st.session_state.username = user
-                    expires = datetime.now() + timedelta(days=3650)
-                    
-                    # Create Signed Cookie
-                    secret = st.secrets["ENCRYPTION_KEY"].strip().encode()
-                    sig = hmac.new(secret, user.encode(), hashlib.sha256).hexdigest()
-                    
-                    cookie_manager.set("galaxy_user", user, expires_at=expires)
-                    cookie_manager.set("galaxy_token", sig, expires_at=expires) # Hashed Token
-                    time.sleep(0.5)
+                    # Set username
+                    if "@" in user:
+                        st.session_state.username = user.split("@")[0]
+                    else:
+                        st.session_state.username = user
+
+                    # Save Cookies (if not Dev Admin)
+                    if token_data: 
+                        expires = datetime.now() + timedelta(days=30)
+                        try:
+                            # Save Refresh Token (Critical)
+                            r_token = token_data.get("refresh_token")
+                            a_token = token_data.get("access_token")
+                            if r_token:
+                                cookie_manager.set("sb_refresh_token", r_token, expires_at=expires)
+                            
+                            # Sync Global Client
+                            supabase.auth.set_session(a_token, r_token)
+                        except: pass
+
+                    st.toast("Login Successful!", icon="🎉")
+                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error("Invalid Username or Password")
+
+        # Forgot Password Section (Outside Form)
+        with st.expander("Forgot Password?"):
+            fp_user = st.text_input("Enter Username to Reset", key="fp_user")
+            if st.button("Send Reset Email"):
+                if fp_user:
+                    # Resolve Email
+                    if "@" in fp_user:
+                        email_to_reset = fp_user
+                    else:
+                        email_to_reset = f"{fp_user}@crm.app"
+                        
+                    try:
+                        # Redirect to localhost:8501 to handle code exchange
+                        supabase.auth.reset_password_for_email(
+                            email_to_reset, 
+                            {"redirect_to": "http://localhost:8501"}
+                        )
+                        st.success(f"Reset link sent to {email_to_reset}. Check your inbox!")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+                else:
+                    st.error("Please enter a username.")
+                    
+        # Manual Link Handler (Fallback)
+        with st.expander("Trouble logging in? (Paste Link Here)"):
+            st.info("If the Reset Link didn't work automatically, paste the full URL from your browser address bar here.")
+            pasted_url = st.text_input("Paste URL with #access_token", key="manual_link")
+            if st.button("Process Link"):
+                if "access_token=" in pasted_url:
+                    try:
+                        # Parse crudely but effectively
+                        # split by # or ?
+                        fragment = pasted_url.split("#")[-1] if "#" in pasted_url else pasted_url
+                        
+                        # mock simple parsing
+                        t_access = None
+                        t_refresh = None
+                        t_type = "recovery"
+                        
+                        parts = fragment.split("&")
+                        for p in parts:
+                            if p.startswith("access_token="): t_access = p.split("=")[1]
+                            if p.startswith("refresh_token="): t_refresh = p.split("=")[1]
+                            if p.startswith("type="): t_type = p.split("=")[1]
+                            
+                        if t_access and t_refresh:
+                            # Restore
+                            res = supabase.auth.set_session(t_access, t_refresh)
+                            if res.user:
+                                st.session_state.logged_in = True
+                                expires = datetime.now() + timedelta(days=30)
+                                cookie_manager.set("sb_refresh_token", t_refresh, expires_at=expires)
+                                cookie_manager.set("sb_access_token", t_access, expires_at=expires)
+                                
+                                st.success("Manual Verification Success! Logging in...")
+                                time.sleep(1)
+                                st.rerun()
+                        else:
+                            st.error("Could not find tokens in that URL.")
+                    except Exception as e:
+                        st.error(f"Error processing link: {e}")
+                else:
+                     st.warning("That doesn't look like a valid reset link (should have access_token).")
 
 # ---------------------------
 # 4. MAIN APP LOGIC
@@ -466,6 +719,23 @@ with tab1:
                     
                     with c1:
                         st.write("**Project Details**")
+                        
+                        # Display Images if available
+                        if proj.get('image_urls'):
+                            st.write("**Site Photos**")
+                            # Simple cleanup of list syntax if stored as string representation in DB (legacy check)
+                            imgs = proj['image_urls']
+                            if isinstance(imgs, str):
+                                try: imgs = eval(imgs)
+                                except: imgs = []
+                            
+                            if isinstance(imgs, list) and imgs:
+                                # Create a carousel or grid
+                                cols = st.columns(min(len(imgs), 3))
+                                for i, url in enumerate(imgs):
+                                    with cols[i % 3]:
+                                        st.image(url, use_container_width=True)
+                        
                         # We can edit measurements here or visit date
                         with st.form(f"edit_proj_{proj['id']}"):
                              n_visit = st.date_input("Visit Date", value=datetime.strptime(proj['visit_date'], '%Y-%m-%d').date() if proj.get('visit_date') else datetime.now().date())
@@ -485,9 +755,15 @@ with tab1:
                     with c2:
                         st.write("**Status & Staff**")
                         opts = helpers.ACTIVE_STATUSES + helpers.INACTIVE_STATUSES
-                        curr_status = proj.get('status', 'Draft')
+                        curr_status = proj.get('status', 'Draft').strip() # Ensure clean string
+                        
                         try: idx = opts.index(curr_status)
-                        except: idx = 0
+                        except ValueError:
+                             # If likely "New" vs "New Lead" or valid status missing in opts
+                             idx = 0
+                             # Fallback: Add to opts if missing to prevent error/wrong display?
+                             # Better to default to 0 (New Lead) but visually we see the mismatch
+                        
                         n_stat = st.selectbox("Status", opts, index=idx, key=f"st_{proj['id']}")
                         
                         # Staff Assignment (Project Level)
@@ -513,6 +789,45 @@ with tab1:
                         
                         if st.button("Update Status", key=f"upd_{proj['id']}"):
                             upd = {"status": n_stat}
+                            
+                            # --- AUTO-PURCHASE LOGIC (Start) ---
+                            if n_stat == "Order Received" and proj.get('status') != "Order Received":
+                                try:
+                                    # 1. Get/Create 'General Inventory' Supplier
+                                    sup_check = supabase.table("suppliers").select("id").eq("name", "General Inventory").execute()
+                                    if sup_check.data:
+                                        inv_sup_id = sup_check.data[0]['id']
+                                    else:
+                                        # Create
+                                        new_sup = supabase.table("suppliers").insert({"name": "General Inventory", "contact_person": "Internal"}).execute()
+                                        inv_sup_id = new_sup.data[0]['id']
+                                    
+                                    # 2. Extract Items from Estimate
+                                    est = proj.get('internal_estimate', {})
+                                    items = est.get('items', [])
+                                    if items:
+                                        to_insert = []
+                                        for item in items:
+                                            qty = float(item.get('Qty', 0))
+                                            rate = float(item.get('Base Rate', 0))
+                                            total = qty * rate
+                                            if qty > 0:
+                                                to_insert.append({
+                                                    "supplier_id": inv_sup_id,
+                                                    "item_name": item.get('Item', 'Unknown'),
+                                                    "quantity": qty,
+                                                    "cost": total,
+                                                    "purchase_date": datetime.now().isoformat(),
+                                                    "notes": f"Auto-logged from Project {proj['id']} (Order Received)"
+                                                })
+                                        
+                                        if to_insert:
+                                            supabase.table("supplier_purchases").insert(to_insert).execute()
+                                            st.toast(f"✅ Auto-logged {len(to_insert)} items as purchased!", icon="🛒")
+                                except Exception as e:
+                                    st.warning(f"Auto-purchase failed: {e}")
+                            # --- AUTO-PURCHASE LOGIC (End) ---
+
                             if show_staff:
                                 upd["assigned_staff"] = assigned_staff_ids
                                 # Update staff status logic (complex, skipping for brevity but keeping basic busy logic)
@@ -680,6 +995,30 @@ with tab_proj:
                     }
                     
                     try:
+                        # Upload Images to Supabase Storage
+                        image_urls_list = []
+                        if up_pics:
+                            for img_file in up_pics:
+                                try:
+                                    # Unique Path
+                                    ts = int(time.time())
+                                    safe_fname = sanitize_filename(img_file.name)
+                                    path = f"project_{client_id}/{ts}_{safe_fname}"
+                                    
+                                    # Upload
+                                    file_bytes = img_file.getvalue()
+                                    supabase.storage.from_("project-images").upload(path, file_bytes, {"content-type": img_file.type})
+                                    
+                                    # Get Public URL
+                                    public_url = supabase.storage.from_("project-images").get_public_url(path)
+                                    if public_url:
+                                        image_urls_list.append(public_url)
+                                except Exception as e:
+                                    st.error(f"Failed to upload {img_file.name}: {e}")
+
+                        # Add image_urls to insert payload
+                        new_proj["image_urls"] = image_urls_list
+                        
                         supabase.table("projects").insert(new_proj).execute()
                         st.success(f"Project '{sel_pt_name}' created for {sel_client_name}!")
                         get_projects.clear()
@@ -1134,15 +1473,17 @@ with tab3:
                         cit = df_to_save.to_dict(orient="records")
                         
                         # Save to PROJECTS table
-                        status_msg = f"Estimate Created on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                        # status_msg = f"Estimate Created on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                        estimated_at = datetime.now().strftime('%Y-%m-%d %H:%M')
                         
                         sobj = {
                             "items": cit, "days": dys, "labor_details": labor_details, 
                             "profit_margin": am,
-                            "welders": 0, "helpers": 0 # Clean up legacy
+                            "welders": 0, "helpers": 0, # Clean up legacy
+                            "created_at": estimated_at # Store timestamp here
                         }
                         try:
-                            supabase.table("projects").update({"internal_estimate": sobj, "status": status_msg}).eq("id", selected_project['id']).execute()
+                            supabase.table("projects").update({"internal_estimate": sobj, "status": "Estimate Given"}).eq("id", selected_project['id']).execute()
                             st.toast("Estimate Saved to Project!", icon="✅")
                             get_projects.clear() # Clear cache
                             st.rerun()
@@ -1170,15 +1511,17 @@ with tab3:
                         for col in ['Item', 'Unit']: df_to_save[col] = df_to_save[col].fillna("")
                         
                         cit = df_to_save.to_dict(orient="records")
-                        status_msg = f"Estimate Created on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                        # status_msg = f"Estimate Created on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                        estimated_at = datetime.now().strftime('%Y-%m-%d %H:%M')
                         
                         sobj = {
                             "items": cit, "days": dys, "labor_details": labor_details, 
                             "profit_margin": am,
-                            "welders": 0, "helpers": 0 
+                            "welders": 0, "helpers": 0,
+                            "created_at": estimated_at
                         }
                         try:
-                            supabase.table("projects").update({"internal_estimate": sobj, "status": status_msg}).eq("id", selected_project['id']).execute()
+                            supabase.table("projects").update({"internal_estimate": sobj, "status": "Estimate Given"}).eq("id", selected_project['id']).execute()
                             # 2. Clear Session State to Reset Form
                             keys_to_clear = [
                                 'est_sel_client', 'est_sel_proj', 'est_qty_input', 
@@ -2040,38 +2383,56 @@ with tab6:
 with tab4:
     st.subheader("⚙️ Global Settings")
     
-    # --- DEV ADMIN PANEL (Start) ---
-    try:
-         if st.session_state.username == st.secrets["DEV_USERNAME"]:
-             with st.expander("🔐 User Management (Dev Only)", expanded=False):
-                 st.warning("⚠️ High Security Area: Plain Text Passwords Visible")
-                 
-                 # Fetch all users
-                 users_res = supabase.table("users").select("*").execute()
-                 if users_res.data:
-                     # Prepare data for display
-                     user_data = []
-                     f = Fernet(st.secrets["ENCRYPTION_KEY"].strip().encode())
-                     
-                     for u in users_res.data:
-                         try:
-                             # Decrypt password
-                             decrypted_pwd = f.decrypt(u['password'].encode()).decode()
-                         except:
-                             decrypted_pwd = "ERR: COULD NOT DECRYPT"
-                             
-                         user_data.append({
-                             "Username": u['username'],
-                             "Password (Plain)": decrypted_pwd,
-                             "Recovery Key": u.get('recovery_key', 'N/A')
-                         })
-                     
-                     st.dataframe(pd.DataFrame(user_data), hide_index=True, use_container_width=True)
-                 else:
-                     st.info("No users found in database.")
-    except Exception as e:
-         pass
-    # --- DEV ADMIN PANEL (End) ---
+    # --- ADMIN USER MANAGEMENT (Supabase Auth) ---
+    if st.session_state.username.lower() == "admin":
+        with st.expander("🔐 User Management (Admin Only)", expanded=True):
+            
+            # Check for Service Role Key
+            service_key = None
+            try:
+                service_key = st.secrets["SUPABASE_SERVICE_KEY"]
+            except:
+                try: service_key = st.secrets["SERVICE_ROLE_KEY"] # Try alternate name
+                except: pass
+            
+            if service_key:
+                # Initialize Admin Client
+                try:
+                    from supabase import create_client, Client
+                    admin_client: Client = create_client(st.secrets["SUPABASE_URL"], service_key)
+                    
+                    with st.form("create_user_form"):
+                        new_user_input = st.text_input("New User Email (or Username)")
+                        if st.form_submit_button("Invite User"):
+                            if new_user_input:
+                                # Determine Email and Username
+                                if "@" in new_user_input:
+                                    email_to_invite = new_user_input
+                                    username_meta = new_user_input.split("@")[0]
+                                else:
+                                    email_to_invite = f"{new_user_input}@crm.app"
+                                    username_meta = new_user_input
+                                
+                                try:
+                                    # Send Invite & Store Metadata
+                                    # Note: invite_user_by_email supports data={...} for metadata
+                                    admin_client.auth.admin.invite_user_by_email(
+                                        email_to_invite, 
+                                        options={
+                                            "data": {"username": username_meta},
+                                            "redirect_to": "http://localhost:8501"
+                                        }
+                                    )
+                                    st.success(f"Invitation sent to {email_to_invite}!")
+                                except Exception as e:
+                                    st.error(f"Invitation Failed: {e}")
+                            else:
+                                st.warning("Enter a value.")
+                except Exception as e:
+                    st.error(f"Admin Client Error: {e}")
+            else:
+                st.warning("⚠️ 'SUPABASE_SERVICE_KEY' missing in secrets. Cannot invite users.")
+    # --- ADMIN USER MANAGEMENT (End) ---
 
     try:
         sett = get_settings()
@@ -2203,15 +2564,20 @@ with tab4:
     st.divider()
     st.subheader("🔐 Change Password")
     with st.form("change_pwd"):
-        cur_pass = st.text_input("Current Password", type="password")
+        cur_pass = st.text_input("Current Password (Optional if using Reset Link)", type="password")
         new_pass = st.text_input("New Password", type="password")
         conf_pass = st.text_input("Confirm New Password", type="password")
         
         if st.form_submit_button("Update Password"):
+            # Check login validity ONLY if they provided a current password
+            is_valid_creds = True
+            if cur_pass:
+                is_valid_creds, _, _ = check_login(st.session_state.username, cur_pass)
+
             if new_pass != conf_pass:
                 st.error("New passwords do not match.")
-            elif not check_login(st.session_state.username, cur_pass):
-                st.error("Incorrect current password.")
+            elif cur_pass and not is_valid_creds:
+                    st.error("Incorrect current password.")
             else:
                 try:
                     # Encrypt before saving
@@ -2219,7 +2585,10 @@ with tab4:
                     f = Fernet(key)
                     encrypted_pass = f.encrypt(new_pass.encode()).decode()
                     
-                    supabase.table("users").update({"password": encrypted_pass}).eq("username", st.session_state.username).execute()
+                    # Update via Supabase Auth Admin (or User update if logged in as themselves)
+                    # Since we are logged in as the user (presumably), we use update_user
+                    res = supabase.auth.update_user({"password": new_pass})
+                    
                     st.success("Password Updated! Please re-login.")
                     time.sleep(1)
                     st.session_state.logged_in = False
@@ -2231,6 +2600,11 @@ with tab4:
     st.divider()
     if st.button("🚪 Log Out", type="primary", use_container_width=True):
         st.session_state.logged_in = False
-        cookie_manager.delete("galaxy_user")
-        cookie_manager.delete("galaxy_token")
+        try:
+            supabase.auth.sign_out()
+        except: pass
+        
+        cookie_manager.delete("sb_access_token")
+        cookie_manager.delete("sb_refresh_token")
+        cookie_manager.delete("galaxy_user") # Legacy cleanup
         st.rerun()

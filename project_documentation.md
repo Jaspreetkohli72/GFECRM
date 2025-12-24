@@ -189,26 +189,36 @@ To prevent "magic numbers" and ensure consistency, the following constants are d
 *   `ACTIVE_STATUSES`: `["Estimate Given", "Order Received", "Work In Progress"]` - Defines which clients appear in the "Active" filter.
 *   `P_L_STATUS`: `["Work Done", "Closed"]` - Defines which projects contribute to the Profit & Loss statement.
 
-### 4.2 Authentication Flow Control
+### 4.2 Secure Authentication Architecture
 
-> [!NOTE]
-> **Security Update**: The system now uses Fernet encryption for password verification.
+> [!IMPORTANT]
+> **Security Update (v2.1)**: The system has migrated from custom Fernet-based auth to **Supabase Native Authentication (REST API)** with Row-Level Security (RLS) compatibility.
 
 **Mechanism**:
-The function `check_login` in `app.py` performs an **Encrypted Comparison**.
-*   **Process**: It encrypts the user entry using the secret `ENCRYPTION_KEY` and compares it to the stored encrypted string.
-*   **Cookie Security**: The "Remember Me" function now uses an **HMAC Signature** (`galaxy_token`) to prevent cookie forgery.
+The authentication flow uses a "Best Practice" hybrid approach ideal for Streamlit's stateless nature:
 
-**Connection Cache Mechanism**
-Streamlit's execution model reloads the script on every interaction. To prevent re-establishing the database connection (which is slow and resource-intensive) on every rerun:
+1.  **REST-Based Login**:
+    *   Direct calls to `Supabase Auth API` (`/auth/v1/token`) via `requests` library.
+    *   Bypasses the `supabase-py` client's local storage issues in cloud environments.
+    *   **Credential Handling**: Passwords are never stored locally; they are exchanged directly for tokens.
 
-1.  **Decorator**: `@st.cache_resource(ttl="1h")` is applied to `init_connection()`.
-2.  **Behavior**:
-    *   **First Run**: The function executes, creates the `Client` object, and stores it in memory.
-    *   **Subsequent Runs**: Streamlit returns the *existing* object from memory.
-    *   **TTL (Time To Live)**: The cache expires after 1 hour, forcing a fresh connection to handle potential token timeouts or stale sockets.
+2.  **Token Persistence Strategy**:
+    *   **Refresh Token Only**: We enforce a strict policy of storing *only* the `refresh_token` in the browser cookie (`auth_cookie_manager_v2`).
+    *   **Access Token**: The short-lived `access_token` is kept **strictly in-memory** (`st.session_state`).
+    *   **Atomic Rotation**: The refresh token is rotated (replaced with a new one) on every session restoration to prevent replay attacks.
 
----
+3.  **Session Restoration & Background Refresh**:
+    *   **Startup**: On app load, the system synchronously exchanges the cookie's `refresh_token` for a temporary `access_token`.
+    *   **Background Thread**: A lightweight background thread monitors token expiry and silently refreshes the session without blocking the UI.
+    *   **Locking**: Thread-safe locking prevents race conditions between multiple tabs or rapid reloads.
+
+4.  **Row-Level Security (RLS) Readiness**:
+    *   **Authenticated Client**: All database operations now use a specific `supabase_with_token(access_token)` wrapper.
+    *   **Authorization**: Every database request includes the User's JWT, ensuring that Supabase RLS policies (e.g., `auth.uid() = user_id`) are correctly enforced.
+
+5.  **Password Reset & Magic Link Handling**:
+    *   **Fragment Interception**: A custom Javascript injection detects URL fragments (`#access_token=...`) used by Supabase magic links.
+    *   **Auto-Conversion**: It automatically converts these fragments into Query Parameters, allowing the Streamlit server to capture the token, restore the session, and seamlessly log the user in for password recovery.
 
 
 ## 5. Debugging Architecture
