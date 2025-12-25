@@ -17,6 +17,7 @@ import streamlit.components.v1 as components
 import html
 import hmac
 import hashlib
+import json
 
 
 # ---------------------------
@@ -229,11 +230,13 @@ cookie_manager = get_manager()
 from cryptography.fernet import Fernet
 
 def check_login(username, password):
+    username = username.lower().strip()
     # Check Dev Secret Login First
     try:
-        if username == st.secrets["DEV_USERNAME"] and password == st.secrets["DEV_PASSWORD"]:
+        if username.strip() == st.secrets["DEV_USERNAME"] and password.strip() == st.secrets["DEV_PASSWORD"]:
             return True
-    except:
+    except Exception as e:
+        # st.error(f"Dev Auth Error: {e}")
         pass
 
     try:
@@ -264,9 +267,25 @@ def check_login(username, password):
 def login_section():
     # Check if user already logged in via cookie
     with st.spinner("Checking session..."):
-        time.sleep(0.3) # Allow cookie manager to sync
-        cookie_user = cookie_manager.get(cookie="galaxy_user")
-        cookie_sig = cookie_manager.get(cookie="galaxy_token")
+        if st.session_state.get('auth_check_count', 0) < 5:
+             time.sleep(0.3) # Allow cookie manager to sync
+        auth_data = cookie_manager.get(cookie="galaxy_auth")
+    
+    cookie_user = None
+    cookie_sig = None
+    
+    if auth_data:
+        try:
+            # Handle string vs dict (stx sometimes returns dict directly if json)
+            if isinstance(auth_data, str):
+                 data = json.loads(auth_data)
+            else:
+                 data = auth_data
+            
+            cookie_user = data.get('user')
+            cookie_sig = data.get('sig')
+        except:
+            cookie_user = None; cookie_sig = None
     
     if cookie_user and cookie_sig:
         # Validate Signature
@@ -296,12 +315,13 @@ def login_section():
                     st.session_state.username = user
                     expires = datetime.now() + timedelta(days=3650)
                     
+                    
                     # Create Signed Cookie
                     secret = st.secrets["ENCRYPTION_KEY"].strip().encode()
                     sig = hmac.new(secret, user.encode(), hashlib.sha256).hexdigest()
                     
-                    cookie_manager.set("galaxy_user", user, expires_at=expires)
-                    cookie_manager.set("galaxy_token", sig, expires_at=expires) # Hashed Token
+                    auth_payload = {"user": user, "sig": sig}
+                    cookie_manager.set("galaxy_auth", auth_payload, expires_at=expires)
                     time.sleep(0.5)
                     st.rerun()
                 else:

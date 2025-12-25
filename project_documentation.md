@@ -197,7 +197,7 @@ To prevent "magic numbers" and ensure consistency, the following constants are d
 **Mechanism**:
 The function `check_login` in `app.py` performs an **Encrypted Comparison**.
 *   **Process**: It encrypts the user entry using the secret `ENCRYPTION_KEY` and compares it to the stored encrypted string.
-*   **Cookie Security**: The "Remember Me" function now uses an **HMAC Signature** (`galaxy_token`) to prevent cookie forgery.
+*   **Cookie Security**: The "Remember Me" function now uses a **Single Signed Composite Cookie** (`galaxy_auth`) containing a JSON payload (`{user, sig}`) to prevent race conditions and cookie forgery.
 
 **Connection Cache Mechanism**
 Streamlit's execution model reloads the script on every interaction. To prevent re-establishing the database connection (which is slow and resource-intensive) on every rerun:
